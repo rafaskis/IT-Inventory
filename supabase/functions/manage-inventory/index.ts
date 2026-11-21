@@ -1,0 +1,614 @@
+import { createClient } from 'npm:@supabase/supabase-js@2'
+
+const allowedOrigin = (Deno.env.get('APP_ALLOWED_ORIGIN') || 'http://localhost:5173').trim()
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': allowedOrigin,
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Vary': 'Origin',
+}
+
+function rejectDisallowedOrigin(req: Request): Response | null {
+  const requestOrigin = req.headers.get('Origin')
+  if (!requestOrigin || requestOrigin === allowedOrigin) return null
+
+  return new Response(JSON.stringify({ error: 'This application origin is not allowed.' }), {
+    status: 403,
+    headers: { 'Content-Type': 'application/json', 'Vary': 'Origin' },
+  })
+}
+
+const jsonResponse = (data: unknown, status = 200) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  })
+
+const isPositiveInteger = (value: unknown) => {
+  const number = typeof value === 'number' ? value : Number(value)
+  return Number.isSafeInteger(number) && number > 0
+}
+
+const normalizeFilterIds = (value: unknown): number[] | null => {
+  if (value === undefined || value === null || value === '') return []
+  const values = Array.isArray(value) ? value : [value]
+  if (values.length > 100 || !values.every(isPositiveInteger)) return null
+  return [...new Set(values.map(Number))]
+}
+
+const normalizeEmployeeIds = (value: unknown): number[] | null => {
+  if (!Array.isArray(value) || !value.every(isPositiveInteger)) return null
+  return [...new Set(value.map(Number))]
+}
+
+const mapRpcError = (error: { code?: string; message?: string }) => {
+  const message = error.message ?? 'The inventory operation failed.'
+
+  if (error.code === '23505') {
+    return jsonResponse({ error: 'A record with one of these values already exists.' }, 409)
+  }
+  if (error.code === '23503') {
+    return jsonResponse({ error: 'One of the selected catalogue, employee or location records is no longer available.' }, 409)
+  }
+  if (error.code === 'P0001' || error.code === '22023') {
+    return jsonResponse({ error: message }, 400)
+  }
+  if (message.toLowerCase().includes('not found')) {
+    return jsonResponse({ error: message }, 404)
+  }
+
+  console.error('Inventory RPC error:', error)
+  return jsonResponse({ error: 'The inventory operation could not be completed.' }, 500)
+}
+
+Deno.serve(async (req) => {
+  const originRejection = rejectDisallowedOrigin(req)
+  if (originRejection) return originRejection
+
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
+  if (req.method !== 'POST') {
+    return jsonResponse({ error: 'Method not allowed.' }, 405)
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+
+    const authHeader = req.headers.get('Authorization')
+    if (!authHeader?.startsWith('Bearer ')) {
+      return jsonResponse({ error: 'Unauthorized.' }, 401)
+    }
+
+    const userClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+      auth: { persistSession: false },
+    })
+
+    const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false },
+    })
+
+    const {
+      data: { user },
+      error: authError,
+    } = await userClient.auth.getUser()
+
+    if (authError || !user) {
+      return jsonResponse({ error: 'Invalid or expired session.' }, 401)
+    }
+
+    const { data: profile, error: profileError } = await serviceClient
+      .from('profiles')
+      .select('username, role, is_active')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile || !profile.is_active) {
+      return jsonResponse({ error: 'Your account is inactive or not authorized.' }, 403)
+    }
+
+    const canRead = ['administrator', 'inventory_manager', 'viewer'].includes(profile.role)
+    const canManage = ['administrator', 'inventory_manager'].includes(profile.role)
+
+    if (!canRead) {
+      return jsonResponse({ error: 'You are not authorized to access inventory.' }, 403)
+    }
+
+    let body: Record<string, unknown>
+    try {
+      body = await req.json()
+    } catch {
+      return jsonResponse({ error: 'Request body must contain valid JSON.' }, 400)
+    }
+
+    const action = body.action
+    const showShared = body.show_shared === undefined ? true : body.show_shared
+    if (typeof showShared !== 'boolean') {
+      return jsonResponse({ error: 'Invalid Show κοινόχρηστα setting.' }, 400)
+    }
+
+    if (!['list', 'filter_options', 'get', 'create', 'update', 'update_with_related', 'bulk_update', 'get_many'].includes(String(action))) {
+      return jsonResponse({ error: 'Invalid action.' }, 400)
+    }
+
+    if (['create', 'update', 'update_with_related', 'bulk_update', 'get_many'].includes(String(action)) && !canManage) {
+      return jsonResponse({ error: 'You are not authorized to modify inventory.' }, 403)
+    }
+
+    const actorId = user.id
+    const actorUsername = profile.username
+
+const inventorySelect = `
+  id,
+  item_code,
+  item_type_id,
+  brand_id,
+  model_id,
+  serial_number,
+  mac_address,
+  pc_name,
+  ip_address,
+  socket,
+  location_id,
+  notes,
+  document_number,
+  invoice,
+  purchase_date,
+  warranty_until,
+  store,
+  created_by,
+  updated_by,
+  created_at,
+  updated_at,
+  brand:brands!inventory_items_brand_id_item_type_id_fkey(
+    id,
+    name,
+    item_type:item_types!brands_item_type_id_fkey(id, name)
+  ),
+  model:models!inventory_items_model_id_brand_id_item_type_id_fkey(id, name),
+  location:locations(id, name),
+  assignments:inventory_item_employees(
+    employee:employees(id, full_name)
+  )
+    `
+
+    const attachActorNames = async (items: Record<string, unknown>[]) => {
+      const actorIds = [...new Set(
+        items.flatMap((item) => [item.created_by, item.updated_by])
+          .filter((id): id is string => typeof id === 'string' && id.length > 0),
+      )]
+
+      let usernames = new Map<string, string>()
+      if (actorIds.length > 0) {
+        const { data: actors, error } = await serviceClient
+          .from('profiles')
+          .select('id, username')
+          .in('id', actorIds)
+
+        if (error) throw new Error('Could not load inventory creator/updater names.')
+        usernames = new Map((actors ?? []).map((actor) => [actor.id, actor.username]))
+      }
+
+      return items.map((item) => ({
+        ...item,
+        created_by_username:
+          typeof item.created_by === 'string' ? usernames.get(item.created_by) ?? null : null,
+        updated_by_username:
+          typeof item.updated_by === 'string' ? usernames.get(item.updated_by) ?? null : null,
+        employees: ((item.assignments as Array<{
+          employee: { id: number; full_name: string } | null
+        }> | null) ?? [])
+          .map((assignment) => assignment.employee)
+          .filter((employee): employee is { id: number; full_name: string } => employee !== null)
+          .sort((a, b) => a.full_name.localeCompare(b.full_name)),
+      }))
+    }
+
+    if (action === 'filter_options') {
+      const filters = body.filters && typeof body.filters === 'object' && !Array.isArray(body.filters)
+        ? body.filters as Record<string, unknown>
+        : {}
+
+      const filterNames = [
+        'item_type_ids',
+        'brand_ids',
+        'model_ids',
+        'location_ids',
+        'employee_ids',
+      ] as const
+
+      const idFilters: Record<(typeof filterNames)[number], number[]> = {
+        item_type_ids: [],
+        brand_ids: [],
+        model_ids: [],
+        location_ids: [],
+        employee_ids: [],
+      }
+
+      const unknownFilters = Object.keys(filters).filter((field) => !filterNames.includes(field as typeof filterNames[number]))
+      if (unknownFilters.length > 0) {
+        return jsonResponse({ error: `Unknown filter: ${unknownFilters[0]}.` }, 400)
+      }
+
+      for (const field of filterNames) {
+        const normalized = normalizeFilterIds(filters[field])
+        if (normalized === null) {
+          return jsonResponse({ error: `Invalid ${field} filter. Supply up to 100 positive integer IDs.` }, 400)
+        }
+        idFilters[field] = normalized
+      }
+
+      const search = typeof body.search === 'string'
+        ? body.search.trim().slice(0, 100)
+        : ''
+      const safeSearch = search
+        .replace(/[,%()"\\]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+      const { data, error } = await serviceClient.rpc('inventory_filter_options', {
+        p_search: safeSearch || null,
+        p_show_shared: showShared,
+        p_item_type_ids: idFilters.item_type_ids,
+        p_brand_ids: idFilters.brand_ids,
+        p_model_ids: idFilters.model_ids,
+        p_location_ids: idFilters.location_ids,
+        p_employee_ids: idFilters.employee_ids,
+      })
+
+      if (error) {
+        console.error('Inventory filter options error:', error)
+        return jsonResponse({ error: 'Could not load inventory filter options.' }, 500)
+      }
+
+      return jsonResponse({ options: data ?? {} })
+    }
+
+    if (action === 'list') {
+      const page = Math.max(1, Math.min(100000, Number.parseInt(String(body.page ?? 1), 10) || 1))
+      const pageSize = Math.max(1, Math.min(100, Number.parseInt(String(body.page_size ?? 25), 10) || 25))
+
+      const allowedSortColumns = [
+        'item_code', 'item_type', 'brand', 'model', 'serial_number', 'mac_address',
+        'pc_name', 'ip_address', 'socket', 'location', 'employee', 'document_number',
+        'purchase_date', 'warranty_until', 'store', 'created_at', 'updated_at',
+      ]
+      const requestedSort = String(body.sort_by ?? 'created_at')
+      if (!allowedSortColumns.includes(requestedSort)) {
+        return jsonResponse({ error: 'Invalid sort field.' }, 400)
+      }
+      const sortOrder = body.sort_order === undefined ? 'desc' : String(body.sort_order)
+      if (!['asc', 'desc'].includes(sortOrder)) {
+        return jsonResponse({ error: 'Invalid sort order.' }, 400)
+      }
+
+      const filters = body.filters && typeof body.filters === 'object' && !Array.isArray(body.filters)
+        ? body.filters as Record<string, unknown>
+        : {}
+
+      const filterAliases = [
+        ['item_type_ids', 'item_type_id'],
+        ['brand_ids', 'brand_id'],
+        ['model_ids', 'model_id'],
+        ['location_ids', 'location_id'],
+        ['employee_ids', 'employee_id'],
+      ] as const
+
+      const allowedFilterNames = new Set([
+        ...filterAliases.flatMap(([plural, singular]) => [plural, singular]),
+        'purchase_date_from',
+        'purchase_date_to',
+        'warranty_date_from',
+        'warranty_date_to',
+      ])
+
+      const unknownFilters = Object.keys(filters).filter((field) => !allowedFilterNames.has(field))
+      if (unknownFilters.length > 0) {
+        return jsonResponse({ error: `Unknown filter: ${unknownFilters[0]}.` }, 400)
+      }
+
+      const idFilters: Record<string, number[]> = {
+        item_type_ids: [],
+        brand_ids: [],
+        model_ids: [],
+        location_ids: [],
+        employee_ids: [],
+      }
+
+      for (const [plural, singular] of filterAliases) {
+        if (filters[plural] !== undefined && filters[singular] !== undefined) {
+          return jsonResponse({ error: `Use either ${plural} or ${singular}, not both.` }, 400)
+        }
+        const value = filters[plural] !== undefined ? filters[plural] : filters[singular]
+        const normalized = normalizeFilterIds(value)
+        if (normalized === null) {
+          return jsonResponse({ error: `Invalid ${plural} filter. Supply up to 100 positive integer IDs.` }, 400)
+        }
+        idFilters[plural] = normalized
+      }
+
+      const dateFilterNames = [
+        'purchase_date_from',
+        'purchase_date_to',
+        'warranty_date_from',
+        'warranty_date_to',
+      ] as const
+      const dateFilters: Record<(typeof dateFilterNames)[number], string | null> = {
+        purchase_date_from: null,
+        purchase_date_to: null,
+        warranty_date_from: null,
+        warranty_date_to: null,
+      }
+
+      for (const field of dateFilterNames) {
+        const value = filters[field]
+        if (value !== undefined && value !== null && value !== '') {
+          if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+            return jsonResponse({ error: `Invalid ${field} date.` }, 400)
+          }
+          dateFilters[field] = value
+        }
+      }
+
+      if (dateFilters.purchase_date_from && dateFilters.purchase_date_to
+          && dateFilters.purchase_date_from > dateFilters.purchase_date_to) {
+        return jsonResponse({ error: 'Purchase date start cannot be after purchase date end.' }, 400)
+      }
+      if (dateFilters.warranty_date_from && dateFilters.warranty_date_to
+          && dateFilters.warranty_date_from > dateFilters.warranty_date_to) {
+        return jsonResponse({ error: 'Warranty date start cannot be after warranty date end.' }, 400)
+      }
+
+      const search = typeof body.search === 'string'
+        ? body.search.trim().slice(0, 100)
+        : ''
+      const safeSearch = search
+        .replace(/[,%()"\\]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+      const { data: pageResult, error: pageError } = await serviceClient.rpc('inventory_list_item_ids', {
+        p_search: safeSearch || null,
+        p_show_shared: showShared,
+        p_item_type_ids: idFilters.item_type_ids,
+        p_brand_ids: idFilters.brand_ids,
+        p_model_ids: idFilters.model_ids,
+        p_location_ids: idFilters.location_ids,
+        p_employee_ids: idFilters.employee_ids,
+        p_purchase_date_from: dateFilters.purchase_date_from,
+        p_purchase_date_to: dateFilters.purchase_date_to,
+        p_warranty_from: dateFilters.warranty_date_from,
+        p_warranty_to: dateFilters.warranty_date_to,
+        p_sort_by: requestedSort,
+        p_sort_order: sortOrder,
+        p_page: page,
+        p_page_size: pageSize,
+      })
+
+      if (pageError) {
+        console.error('Inventory list ordering error:', pageError)
+        return jsonResponse({ error: 'Could not load inventory items.' }, 500)
+      }
+
+      const itemIds = Array.isArray(pageResult?.ids)
+        ? pageResult.ids.map((id: unknown) => Number(id))
+        : []
+      const total = Number(pageResult?.total ?? 0)
+
+      if (itemIds.length === 0) {
+        return jsonResponse({
+          items: [],
+          total,
+          page,
+          page_size: pageSize,
+          total_pages: Math.ceil(total / pageSize),
+        })
+      }
+
+      const { data, error } = await serviceClient
+        .from('inventory_items')
+        .select(inventorySelect)
+        .in('id', itemIds)
+
+      if (error) {
+        console.error('Inventory list item fetch error:', error)
+        return jsonResponse({ error: 'Could not load inventory items.' }, 500)
+      }
+
+      const fetchedItems = await attachActorNames((data ?? []) as unknown as Record<string, unknown>[])
+      const itemById = new Map<number, Record<string, unknown>>(
+        fetchedItems.map((item) => [Number(item.id), item] as const)
+      )
+      const items = itemIds
+        .map((id: number) => itemById.get(id))
+        .filter((item): item is Record<string, unknown> => item !== undefined)
+
+      return jsonResponse({
+        items,
+        total,
+        page,
+        page_size: pageSize,
+        total_pages: Math.ceil(total / pageSize),
+      })
+    }
+
+    if (action === 'get') {
+      if (!isPositiveInteger(body.id)) {
+        return jsonResponse({ error: 'Invalid inventory item ID.' }, 400)
+      }
+
+      const { data, error } = await serviceClient
+        .from('inventory_items')
+        .select(inventorySelect)
+        .eq('id', Number(body.id))
+        .maybeSingle()
+
+      if (error) {
+        console.error('Inventory get error:', error)
+        return jsonResponse({ error: 'Could not load the inventory item.' }, 500)
+      }
+      if (!data) return jsonResponse({ error: 'Inventory item not found.' }, 404)
+
+      const [item] = await attachActorNames([data as unknown as Record<string, unknown>])
+      return jsonResponse({ item })
+    }
+
+    if (action === 'get_many') {
+      if (!Array.isArray(body.item_ids) || body.item_ids.length === 0 || body.item_ids.length > 500 || !body.item_ids.every(isPositiveInteger)) {
+        return jsonResponse({ error: 'Supply between 1 and 500 valid inventory item IDs.' }, 400)
+      }
+      const ids = [...new Set(body.item_ids.map(Number))]
+      const { data, error } = await serviceClient.from('inventory_items').select(inventorySelect).in('id', ids)
+      if (error) {
+        console.error('Inventory bulk preview error:', error)
+        return jsonResponse({ error: 'Could not load the selected inventory items.' }, 500)
+      }
+      const attached = await attachActorNames((data ?? []) as unknown as Record<string, unknown>[])
+      const byId = new Map<number, Record<string, unknown>>(attached.map((item) => [Number(item.id), item] as const))
+      const ordered = ids.map((id) => byId.get(id)).filter((item) => item !== undefined)
+      if (ordered.length !== ids.length) return jsonResponse({ error: 'One or more selected inventory items no longer exist.' }, 409)
+      return jsonResponse({ items: ordered })
+    }
+
+    if (action === 'create') {
+      if (!body.item || typeof body.item !== 'object' || Array.isArray(body.item)) {
+        return jsonResponse({ error: 'Item details are required.' }, 400)
+      }
+
+      const employeeIds = normalizeEmployeeIds(body.employee_ids ?? [])
+      if (employeeIds === null) {
+        return jsonResponse({ error: 'Employee IDs must be an array of valid IDs.' }, 400)
+      }
+
+      const newEmployeeNames = body.new_employee_names === undefined ? [] : body.new_employee_names
+      if (!Array.isArray(newEmployeeNames) || newEmployeeNames.length > 50
+          || !newEmployeeNames.every((name) => typeof name === 'string')) {
+        return jsonResponse({ error: 'New employee names must be an array of up to 50 names.' }, 400)
+      }
+      const optionalName = (value: unknown) => typeof value === 'string' ? value.trim() : ''
+      const { data, error } = await serviceClient.rpc('inventory_create_item_with_related', {
+        p_item: body.item,
+        p_employee_ids: employeeIds,
+        p_new_employee_names: newEmployeeNames,
+        p_new_item_type_name: optionalName(body.new_item_type_name) || null,
+        p_new_brand_name: optionalName(body.new_brand_name) || null,
+        p_new_model_name: optionalName(body.new_model_name) || null,
+        p_new_location_name: optionalName(body.new_location_name) || null,
+        p_actor_id: actorId,
+        p_actor_username: actorUsername,
+      })
+      if (error) return mapRpcError(error)
+      return jsonResponse(data)
+    }
+
+    if (action === 'update_with_related') {
+      if (!isPositiveInteger(body.id)) {
+        return jsonResponse({ error: 'Invalid inventory item ID.' }, 400)
+      }
+      if (!body.item || typeof body.item !== 'object' || Array.isArray(body.item)) {
+        return jsonResponse({ error: 'Item changes are required.' }, 400)
+      }
+      const employeeIds = normalizeEmployeeIds(body.employee_ids ?? [])
+      if (employeeIds === null) {
+        return jsonResponse({ error: 'Employee IDs must be an array of valid IDs.' }, 400)
+      }
+      const newEmployeeNames = body.new_employee_names === undefined ? [] : body.new_employee_names
+      if (!Array.isArray(newEmployeeNames) || newEmployeeNames.length > 50
+          || !newEmployeeNames.every((name) => typeof name === 'string')) {
+        return jsonResponse({ error: 'New employee names must be an array of up to 50 names.' }, 400)
+      }
+      const optionalName = (value: unknown) => typeof value === 'string' ? value.trim() : ''
+      const { data, error } = await serviceClient.rpc('inventory_update_item_with_related', {
+        p_id: Number(body.id),
+        p_item: body.item,
+        p_employee_ids: employeeIds,
+        p_new_employee_names: newEmployeeNames,
+        p_new_item_type_name: optionalName(body.new_item_type_name) || null,
+        p_new_brand_name: optionalName(body.new_brand_name) || null,
+        p_new_model_name: optionalName(body.new_model_name) || null,
+        p_new_location_name: optionalName(body.new_location_name) || null,
+        p_actor_id: actorId,
+        p_actor_username: actorUsername,
+      })
+      if (error) return mapRpcError(error)
+      return jsonResponse(data)
+    }
+
+    if (action === 'update') {
+      if (!isPositiveInteger(body.id)) {
+        return jsonResponse({ error: 'Invalid inventory item ID.' }, 400)
+      }
+      if (!body.item || typeof body.item !== 'object' || Array.isArray(body.item)) {
+        return jsonResponse({ error: 'Item changes are required.' }, 400)
+      }
+
+      let employeeIds: number[] | null = null
+      if (body.employee_ids !== undefined && body.employee_ids !== null) {
+        employeeIds = normalizeEmployeeIds(body.employee_ids)
+        if (employeeIds === null) {
+          return jsonResponse({ error: 'Employee IDs must be an array of valid IDs.' }, 400)
+        }
+      }
+
+      const { data, error } = await serviceClient.rpc('inventory_update_item', {
+        p_id: Number(body.id),
+        p_item: body.item,
+        p_employee_ids: employeeIds,
+        p_actor_id: actorId,
+        p_actor_username: actorUsername,
+      })
+      if (error) return mapRpcError(error)
+      return jsonResponse(data)
+    }
+
+    if (action === 'bulk_update') {
+      if (!Array.isArray(body.item_ids) || body.item_ids.length === 0) {
+        return jsonResponse({ error: 'Select at least one inventory item.' }, 400)
+      }
+      if (body.item_ids.length > 500) {
+        return jsonResponse({ error: 'A maximum of 500 items can be updated at once.' }, 400)
+      }
+      if (!body.item_ids.every(isPositiveInteger)) {
+        return jsonResponse({ error: 'One or more inventory item IDs are invalid.' }, 400)
+      }
+      if (!body.item || typeof body.item !== 'object' || Array.isArray(body.item)) {
+        return jsonResponse({ error: 'Bulk update details are required.' }, 400)
+      }
+      const allowedBulkFields = ['location_id', 'notes']
+      const unsupportedFields = Object.keys(body.item).filter((field) => !allowedBulkFields.includes(field))
+      if (unsupportedFields.length > 0) return jsonResponse({ error: `Bulk editing does not support the ${unsupportedFields[0]} field.` }, 400)
+
+      let employeeIds: number[] | null = null
+      if (body.employee_ids !== undefined && body.employee_ids !== null) {
+        employeeIds = normalizeEmployeeIds(body.employee_ids)
+        if (employeeIds === null) return jsonResponse({ error: 'Employee IDs must be an array of valid IDs.' }, 400)
+      }
+      const newEmployeeNames = body.new_employee_names === undefined ? [] : body.new_employee_names
+      if (!Array.isArray(newEmployeeNames) || newEmployeeNames.length > 50 || !newEmployeeNames.every((name) => typeof name === 'string')) {
+        return jsonResponse({ error: 'New employee names must be an array of up to 50 names.' }, 400)
+      }
+      if (newEmployeeNames.length > 0 && employeeIds === null) return jsonResponse({ error: 'Employee assignments must be enabled when creating employees.' }, 400)
+
+      const { data, error } = await serviceClient.rpc('inventory_bulk_update_items_with_employees', {
+        p_item_ids: body.item_ids.map(Number),
+        p_item: body.item,
+        p_employee_ids: employeeIds,
+        p_new_employee_names: newEmployeeNames,
+        p_actor_id: actorId,
+        p_actor_username: actorUsername,
+      })
+      if (error) return mapRpcError(error)
+      return jsonResponse(data)
+    }
+
+    return jsonResponse({ error: 'Invalid action.' }, 400)
+  } catch (error) {
+    console.error('manage-inventory error:', error)
+    return jsonResponse({ error: 'An unexpected error occurred.' }, 500)
+  }
+})
