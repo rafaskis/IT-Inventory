@@ -132,6 +132,7 @@ Deno.serve(async (req) => {
 
     const canRead = ['administrator', 'inventory_manager', 'viewer'].includes(profile.role)
     const canManage = ['administrator', 'inventory_manager'].includes(profile.role)
+    const isAdministrator = profile.role === 'administrator'
 
     if (!canRead) {
       return jsonResponse({ error: 'You are not authorized to access inventory.' }, 403)
@@ -494,6 +495,9 @@ const inventorySelect = `
     }
 
     if (action === 'create') {
+      if (typeof body.new_location_name === 'string' && body.new_location_name.trim() && !isAdministrator) {
+        return jsonResponse({ error: 'Only administrators can create new locations.' }, 403)
+      }
       if (!body.item || typeof body.item !== 'object' || Array.isArray(body.item)) {
         return jsonResponse({ error: 'Item details are required.' }, 400)
       }
@@ -528,6 +532,9 @@ const inventorySelect = `
     }
 
     if (action === 'update_with_related') {
+      if (typeof body.new_location_name === 'string' && body.new_location_name.trim() && !isAdministrator) {
+        return jsonResponse({ error: 'Only administrators can create new locations.' }, 403)
+      }
       if (!isPositiveInteger(body.id)) {
         return jsonResponse({ error: 'Invalid inventory item ID.' }, 400)
       }

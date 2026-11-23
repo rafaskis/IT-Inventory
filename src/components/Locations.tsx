@@ -30,6 +30,7 @@ export default function Locations() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [isAdministrator, setIsAdministrator] = useState(false);
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -119,9 +120,29 @@ export default function Locations() {
   };
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function loadRole() {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user || cancelled) return;
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role, is_active')
+        .eq('id', userData.user.id)
+        .maybeSingle();
+
+      if (!cancelled) {
+        setIsAdministrator(Boolean(profile?.is_active && profile.role === 'administrator'));
+      }
+    }
+
+    void loadRole();
     // Load locations once when this screen mounts.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadLocations();
+
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -246,8 +267,7 @@ export default function Locations() {
 
     return (
       location.name.toLowerCase().includes(term) ||
-      (location.notes ?? '').toLowerCase().includes(term) ||
-      location.id.includes(term)
+      (location.notes ?? '').toLowerCase().includes(term)
     );
   });
 
@@ -257,6 +277,9 @@ export default function Locations() {
         <h1 className="text-2xl font-bold text-gray-900">Locations</h1>
         <p className="mt-1 text-sm text-gray-500">
           Manage inventory locations and see their assigned equipment and employees.
+        </p>
+        <p className="mt-1 text-xs text-gray-500">
+          Only administrators can create or modify locations.
         </p>
       </div>
 
@@ -292,7 +315,7 @@ export default function Locations() {
           </button>
         </div>
 
-        <div className="flex flex-col gap-2 border-b border-gray-200 bg-gray-50 p-4">
+        {isAdministrator && <div className="flex flex-col gap-2 border-b border-gray-200 bg-gray-50 p-4">
           <input
             type="text"
             value={newName}
@@ -325,7 +348,7 @@ export default function Locations() {
               Add location
             </button>
           </div>
-        </div>
+        </div>}
 
         <div className="border-b border-gray-200 p-4">
           <div className="relative max-w-md">
@@ -337,7 +360,7 @@ export default function Locations() {
               type="text"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by name, notes or location ID..."
+              placeholder="Search by name or notes..."
               className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500"
             />
           </div>
@@ -396,9 +419,6 @@ export default function Locations() {
                       <p className="text-sm font-medium text-gray-800">
                         {location.name}
                       </p>
-                      <p className="mt-1 text-xs text-gray-400">
-                        Location ID: {location.id}
-                      </p>
                       {location.notes && (
                         <p className="mt-2 whitespace-pre-wrap text-sm text-gray-500">
                           {location.notes}
@@ -451,7 +471,7 @@ export default function Locations() {
                         <span className={location.employee_count === 0 ? 'font-semibold text-red-700' : ''}>{location.employee_count}</span>
                       </div>
 
-                      <button
+                      {isAdministrator && <button
                         onClick={() => {
                           setEditingId(location.id);
                           setEditingName(location.name);
@@ -463,9 +483,9 @@ export default function Locations() {
                         className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
                       >
                         <Pencil size={16} />
-                      </button>
+                      </button>}
 
-                      <button
+                      {isAdministrator && <button
                         onClick={() => {
                           setDeleteTarget(location);
                           clearMessages();
@@ -475,7 +495,7 @@ export default function Locations() {
                         className="rounded-lg p-2 text-red-500 hover:bg-red-50"
                       >
                         <Trash2 size={16} />
-                      </button>
+                      </button>}
                     </>
                   )}
                 </div>

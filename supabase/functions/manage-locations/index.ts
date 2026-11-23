@@ -76,9 +76,9 @@ Deno.serve(async (req) => {
       profileError ||
       !profile ||
       !profile.is_active ||
-      !['administrator', 'inventory_manager'].includes(profile.role)
+      !['administrator', 'inventory_manager', 'viewer'].includes(profile.role)
     ) {
-      return jsonResponse({ error: 'You are not authorized to manage locations.' }, 403)
+      return jsonResponse({ error: 'You are not authorized to view locations.' }, 403)
     }
 
     const body = await req.json()
@@ -142,6 +142,10 @@ Deno.serve(async (req) => {
 
     const actorId = user.id
     const actorUsername = profile.username
+
+    if (action !== 'list' && profile.role !== 'administrator') {
+      return jsonResponse({ error: 'Only administrators can create, modify or delete locations.' }, 403)
+    }
 
     if (action === 'create') {
       const name = typeof body.name === 'string' ? body.name.trim() : ''
