@@ -207,7 +207,7 @@ export default function AuditLogs({ role }: { role: string }) {
         <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-end">
           <div className="flex-1">
             <label className="mb-1 block text-sm font-medium text-slate-700">Export one item's complete history</label>
-            <input value={itemCode} onChange={(event) => setItemCode(event.target.value)} placeholder="e.g. ITEM-000001" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+            <input value={itemCode} onChange={(event) => setItemCode(event.target.value)} placeholder="e.g. MJPO-000001" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
           </div>
           <button onClick={() => void exportItemHistory()} disabled={exporting} className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:opacity-50">
             <Download size={16} /> {exporting ? 'Preparing…' : 'Download TXT'}

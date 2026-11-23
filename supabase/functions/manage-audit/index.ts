@@ -85,7 +85,7 @@ Deno.serve(async (req) => {
   const action = String(body.action ?? 'list');
   if (action === 'item_history') {
     const itemCode = String(body.item_code ?? '').trim().toUpperCase();
-    if (!/^ITEM-\d{6,}$/.test(itemCode)) return response({ error: 'Enter a valid Item Code.' }, 400);
+    if (!/^MJPO-\d{6,}$/.test(itemCode)) return response({ error: 'Enter a valid Item Code.' }, 400);
     const { data: item, error: itemError } = await admin
       .from('inventory_items')
       .select('id, item_code')

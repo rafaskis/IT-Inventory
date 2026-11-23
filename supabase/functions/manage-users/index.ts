@@ -157,11 +157,11 @@ Deno.serve(async (req) => {
       typeof currentPassword !== 'string' ||
       currentPassword.length === 0 ||
       typeof newPassword !== 'string' ||
-      newPassword.length < 12 ||
-      newPassword.length > 128
+      newPassword.length < 8 ||
+      newPassword.length > 32
     ) {
       return response({
-        error: 'Enter your current password and a new password between 12 and 128 characters.',
+        error: 'Enter your current password and a new password between 8 and 32 characters.',
       }, 400)
     }
 
@@ -264,11 +264,11 @@ Deno.serve(async (req) => {
 
     if (
       typeof password !== 'string' ||
-      password.length < 12 ||
-      password.length > 128
+      password.length < 8 ||
+      password.length > 32
     ) {
       return response({
-        error: 'Password must contain between 12 and 128 characters.',
+        error: 'Password must contain between 8 and 32 characters.',
       }, 400)
     }
 
@@ -475,11 +475,11 @@ Deno.serve(async (req) => {
 
     if (
       typeof password !== 'string' ||
-      password.length < 12 ||
-      password.length > 128
+      password.length < 8 ||
+      password.length > 32
     ) {
       return response({
-        error: 'Password must contain between 12 and 128 characters.',
+        error: 'Password must contain between 8 and 32 characters.',
       }, 400)
     }
 

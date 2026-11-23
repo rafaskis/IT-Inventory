@@ -136,8 +136,8 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
 
   if (!resetTarget) return
 
-  if (resetPassword.length < 12 || resetPassword.length > 128) {
-    setError('Password must contain between 12 and 128 characters.')
+  if (resetPassword.length < 8 || resetPassword.length > 32) {
+    setError('Password must contain between 8 and 32 characters.')
     return
   }
 
@@ -238,11 +238,11 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
             <input
               type="password"
               required
-              minLength={12}
-              maxLength={128}
+              minLength={8}
+              maxLength={32}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="At least 12 characters"
+              placeholder="8–32 characters"
               autoComplete="new-password"
               className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             />
@@ -437,12 +437,12 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
           <input
             type="password"
             required
-            minLength={12}
-            maxLength={128}
+            minLength={8}
+            maxLength={32}
             autoComplete="new-password"
             value={resetPassword}
             onChange={(event) => setResetPassword(event.target.value)}
-            placeholder="At least 12 characters"
+            placeholder="8–32 characters"
             className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           />
         </div>
@@ -454,8 +454,8 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
           <input
             type="password"
             required
-            minLength={12}
-            maxLength={128}
+            minLength={8}
+            maxLength={32}
             autoComplete="new-password"
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}

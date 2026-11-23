@@ -170,7 +170,7 @@ function Dashboard({
               <Boxes size={23} />
             </div>
             <div>
-              <h1 className="text-lg font-bold tracking-wide">IT-Inventory</h1>
+              <h1 className="text-lg font-bold tracking-wide">MJPO Inventory</h1>
               <p className="text-xs text-slate-400">Management System</p>
             </div>
           </div>
@@ -658,7 +658,7 @@ function App() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100">
         <p className="text-sm font-medium text-slate-500">
-          Loading IT-Inventory...
+          Loading MJPO Inventory...
         </p>
       </div>
     )

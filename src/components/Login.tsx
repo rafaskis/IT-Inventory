@@ -1,6 +1,7 @@
 
 import { useState } from 'react'
-import { Boxes, Eye, EyeOff, LockKeyhole, User } from 'lucide-react'
+import { Eye, EyeOff, LockKeyhole, User } from 'lucide-react'
+import cyprusLogo from '../assets/cyprus-republic-logo.png'
 import { supabase } from '../lib/supabase'
 
 export default function Login() {
@@ -68,12 +69,16 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-10">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg">
-            <Boxes size={34} />
+          <div className="mx-auto flex h-20 w-20 items-center justify-center">
+            <img
+              src={cyprusLogo}
+              alt="Republic of Cyprus emblem"
+              className="h-full w-full object-contain"
+            />
           </div>
 
           <h1 className="mt-5 text-2xl font-bold text-slate-900">
-            IT-Inventory
+            MJPO Inventory
           </h1>
 
           <p className="mt-2 text-sm text-slate-500">

@@ -50,8 +50,8 @@ export default function SettingsPage({
     setPasswordSuccess('')
     setPasswordWarning('')
 
-    if (newPassword.length < 12 || newPassword.length > 128) {
-      setPasswordError('The new password must contain between 12 and 128 characters.')
+    if (newPassword.length < 8 || newPassword.length > 32) {
+      setPasswordError('The new password must contain between 8 and 32 characters.')
       return
     }
 
@@ -156,13 +156,13 @@ export default function SettingsPage({
               id="new-password"
               type="password"
               required
-              minLength={12}
-              maxLength={128}
+              minLength={8}
+              maxLength={32}
               autoComplete="new-password"
               value={newPassword}
               onChange={(event) => setNewPassword(event.target.value)}
               disabled={changingPassword}
-              placeholder="12–128 characters"
+              placeholder="8–32 characters"
               className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             />
           </div>
@@ -172,8 +172,8 @@ export default function SettingsPage({
               id="confirm-new-password"
               type="password"
               required
-              minLength={12}
-              maxLength={128}
+              minLength={8}
+              maxLength={32}
               autoComplete="new-password"
               value={confirmPassword}
               onChange={(event) => setConfirmPassword(event.target.value)}
@@ -201,7 +201,7 @@ export default function SettingsPage({
             <KeyRound size={16} /> {changingPassword ? 'Changing password…' : 'Change password'}
           </button>
           <p className="text-xs leading-5 text-slate-500">
-            Passwords must be 12–128 characters. No additional character-composition rules are imposed.
+            Passwords must be 8–32 characters. No additional character-composition rules are imposed.
           </p>
         </form>
       </section>
@@ -211,7 +211,7 @@ export default function SettingsPage({
           <div className="rounded-lg bg-violet-50 p-2 text-violet-600"><Monitor size={19} /></div>
           <div>
             <h2 className="font-semibold text-slate-900">Application preferences</h2>
-            <p className="text-xs text-slate-500">Choose how IT-Inventory opens for you</p>
+            <p className="text-xs text-slate-500">Choose how MJPO Inventory opens for you</p>
           </div>
         </div>
         <div className="space-y-4 p-5">
