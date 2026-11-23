@@ -49,7 +49,7 @@ The Inventory page is the main equipment register.
 - Use the search field to search item codes, serial numbers, MAC addresses, PC names, IP addresses, invoice references, store, EOASIS document numbers and notes.
 - Open **Filters** to narrow results by item type, brand, model, employee or location.
 - You can also filter by purchase-date and warranty-date ranges.
-- Use **Hide κοινόχρηστα;** to hide shared equipment from the results.
+- Use **Hide shared items?** to hide shared equipment from the results.
 - Select **Clear all** to remove the current search and filters.
 - Select column headings to sort where sorting is available.
 - Use the column selector to show or hide columns. **Reset** restores the default columns.

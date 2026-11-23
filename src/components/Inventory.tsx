@@ -145,7 +145,7 @@ function displayMacAddress(value: string | null | undefined) {
 
 function displayEmployees(employees: Employee[] | null | undefined) {
   if (!employees || employees.length === 0) return '—';
-  if (employees.length > 1) return 'ΚΟΙΝΟΧΡΗΣΤΟ';
+  if (employees.length > 1) return 'SHARED';
   return employees[0].full_name;
 }
 
@@ -1106,7 +1106,7 @@ export default function Inventory() {
         allRows.push(...(data.items as InventoryItem[]));
         targetPages = Math.max(1, Number(data.total_pages ?? 1));
       }
-      const title = exportType === 'debit' ? 'Χρεωστικό σημείωμα' : 'Inventory';
+      const title = exportType === 'debit' ? 'Issue Voucher' : 'Inventory';
       printWindow.document.open();
       printWindow.document.write(buildInventoryPrintHtml(allRows, exportColumns, title, selectedEmployee?.full_name));
       printWindow.document.close();
@@ -1306,7 +1306,7 @@ export default function Inventory() {
                   }}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
-                <span>Hide κοινόχρηστα;</span>
+                <span>Hide shared items?</span>
               </label>
             </div>
 

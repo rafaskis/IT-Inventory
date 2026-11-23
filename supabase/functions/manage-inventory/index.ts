@@ -148,7 +148,7 @@ Deno.serve(async (req) => {
     const action = body.action
     const showShared = body.show_shared === undefined ? true : body.show_shared
     if (typeof showShared !== 'boolean') {
-      return jsonResponse({ error: 'Invalid Show κοινόχρηστα setting.' }, 400)
+      return jsonResponse({ error: 'Invalid shared-items visibility setting.' }, 400)
     }
 
     if (!['list', 'filter_options', 'get', 'create', 'update', 'update_with_related', 'bulk_update', 'get_many'].includes(String(action))) {
