@@ -128,6 +128,21 @@ function displayValue(value: string | number | null | undefined) {
   return value === null || value === undefined || value === '' ? '—' : String(value);
 }
 
+function formatMacAddress(value: string) {
+  const hex = value.replace(/[^0-9a-f]/gi, '').slice(0, 12).toUpperCase();
+  return hex.match(/.{1,2}/g)?.join(':') ?? '';
+}
+
+function isCompleteMacAddress(value: string) {
+  return value === '' || /^(?:[0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(value);
+}
+
+function displayMacAddress(value: string | null | undefined) {
+  if (!value) return '—';
+  const formatted = formatMacAddress(value);
+  return isCompleteMacAddress(formatted) ? formatted : value;
+}
+
 function displayEmployees(employees: Employee[] | null | undefined) {
   if (!employees || employees.length === 0) return '—';
   if (employees.length > 1) return 'ΚΟΙΝΟΧΡΗΣΤΟ';
@@ -162,7 +177,7 @@ function inventoryCellValue(item: InventoryItem, key: ColumnKey) {
     case 'location': return item.location?.name ?? '—';
     case 'notes': return displayValue(item.notes);
     case 'document_number': return displayValue(item.document_number);
-    case 'mac_address': return displayValue(item.mac_address);
+    case 'mac_address': return displayMacAddress(item.mac_address);
     case 'pc_name': return displayValue(item.pc_name);
     case 'ip_address': return displayValue(item.ip_address);
     case 'socket': return displayValue(item.socket);
@@ -682,7 +697,7 @@ export default function Inventory() {
       case 'location': return displayValue(item.location?.name);
       case 'notes': return displayValue(item.notes);
       case 'document_number': return displayValue(item.document_number);
-      case 'mac_address': return displayValue(item.mac_address);
+      case 'mac_address': return displayMacAddress(item.mac_address);
       case 'pc_name': return displayValue(item.pc_name);
       case 'ip_address': return displayValue(item.ip_address);
       case 'socket': return displayValue(item.socket);
@@ -723,6 +738,10 @@ export default function Inventory() {
     }
     const names = newEmployeeNames.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
     if (names.length > 50) { setCreateError('You can add a maximum of 50 new employees at once.'); return; }
+    if (!isCompleteMacAddress(createDraft.mac_address)) {
+      setCreateError('MAC address must contain exactly 12 hexadecimal characters (for example, 00:1A:2B:3C:4D:5E), or be left empty.');
+      return;
+    }
     if (createDraft.document_number && !/^\d+$/.test(createDraft.document_number)) { setCreateError('Document No. must be a whole number.'); return; }
     setCreateSaving(true);
     const item: Record<string, unknown> = {
@@ -793,7 +812,7 @@ export default function Inventory() {
       model_id: String(item.model_id ?? ''),
       location_id: String(item.location_id ?? ''),
       serial_number: item.serial_number ?? '',
-      mac_address: item.mac_address ?? '',
+      mac_address: formatMacAddress(item.mac_address ?? ''),
       pc_name: item.pc_name ?? '',
       ip_address: item.ip_address ?? '',
       socket: item.socket ?? '',
@@ -813,6 +832,10 @@ export default function Inventory() {
     setEditError('');
     if ((!editDraft.item_type_id && !editNewItemTypeName.trim()) || (!editDraft.brand_id && !editNewBrandName.trim()) || (!editDraft.model_id && !editNewModelName.trim()) || (!editDraft.location_id && !editNewLocationName.trim())) {
       setEditError('Item Type, Brand, Model and Location are required. Select an existing value or enter a new one.');
+      return;
+    }
+    if (!isCompleteMacAddress(editDraft.mac_address)) {
+      setEditError('MAC address must contain exactly 12 hexadecimal characters (for example, 00:1A:2B:3C:4D:5E), or be left empty.');
       return;
     }
     if (editDraft.document_number && !/^\d+$/.test(editDraft.document_number)) {
@@ -1576,7 +1599,7 @@ export default function Inventory() {
               <div><label className="mb-1 block text-sm font-medium text-gray-700">Brand *</label><select disabled={!createDraft.item_type_id && !newItemTypeName.trim()} value={newBrandName ? '__new' : createDraft.brand_id} onChange={e=>{setNewBrandName('');setNewModelName('');setCreateDraft(d=>({...d,brand_id:e.target.value==='__new'?'':e.target.value,model_id:''}));}} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"><option value="">Select Brand</option>{createBrands.filter(x=>x.item_type_id===Number(createDraft.item_type_id)).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}<option value="__new">+ Create new Brand</option></select>{(newBrandName || !createDraft.brand_id) && <input disabled={!createDraft.item_type_id && !newItemTypeName.trim()} value={newBrandName} onChange={e=>{setNewBrandName(e.target.value);setNewModelName('');setCreateDraft(d=>({...d,model_id:''}));}} placeholder="New Brand name" className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"/>}</div>
               <div><label className="mb-1 block text-sm font-medium text-gray-700">Model *</label><select disabled={!createDraft.brand_id && !newBrandName.trim()} value={newModelName ? '__new' : createDraft.model_id} onChange={e=>{setNewModelName('');setCreateDraft(d=>({...d,model_id:e.target.value==='__new'?'':e.target.value}));}} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"><option value="">Select Model</option>{createModels.filter(x=>x.brand_id===Number(createDraft.brand_id)).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}<option value="__new">+ Create new Model</option></select>{(newModelName || !createDraft.model_id) && <input disabled={!createDraft.brand_id && !newBrandName.trim()} value={newModelName} onChange={e=>setNewModelName(e.target.value)} placeholder="New Model name" className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"/>}</div>
               <div><label className="mb-1 block text-sm font-medium text-gray-700">Location *</label><select value={newLocationName ? '__new' : createDraft.location_id} onChange={e=>{setNewLocationName('');setCreateDraft(d=>({...d,location_id:e.target.value==='__new'?'':e.target.value}));}} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"><option value="">Select Location</option>{createLocations.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}<option value="__new">+ Create new Location</option></select>{(newLocationName || !createDraft.location_id) && <input value={newLocationName} onChange={e=>setNewLocationName(e.target.value)} placeholder="New Location name" className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/>}</div>
-              {([['serial_number','S/N'],['mac_address','MAC'],['pc_name','PC Name'],['ip_address','IP'],['socket','SOCKET'],['document_number','EOASIS Doc. No.'],['invoice','Invoice'],['purchase_date','Purchase Date'],['warranty_until','Warranty Date'],['store','Store']] as [keyof CreateDraft,string][]).map(([key,label])=><div key={key}><label className="mb-1 block text-sm font-medium text-gray-700">{label}{key==='serial_number'?' (optional)':''}</label><input type={key==='purchase_date'||key==='warranty_until'?'date':'text'} inputMode={key==='document_number'?'numeric':undefined} value={createDraft[key]} onChange={e=>setCreateDraft(d=>({...d,[key]:e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/></div>)}
+              {([['serial_number','S/N'],['mac_address','MAC'],['pc_name','PC Name'],['ip_address','IP'],['socket','SOCKET'],['document_number','EOASIS Doc. No.'],['invoice','Invoice'],['purchase_date','Purchase Date'],['warranty_until','Warranty Date'],['store','Store']] as [keyof CreateDraft,string][]).map(([key,label])=><div key={key}><label className="mb-1 block text-sm font-medium text-gray-700">{label}{key==='serial_number'?' (optional)':''}</label><input type={key==='purchase_date'||key==='warranty_until'?'date':'text'} inputMode={key==='document_number'?'numeric':undefined} value={createDraft[key]} maxLength={key === 'mac_address' ? 17 : undefined} placeholder={key === 'mac_address' ? '00:1A:2B:3C:4D:5E' : undefined} autoCapitalize={key === 'mac_address' ? 'characters' : undefined} onChange={e=>setCreateDraft(d=>({...d,[key]:key === 'mac_address' ? formatMacAddress(e.target.value) : e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/></div>)}
               <div className="md:col-span-2"><label className="mb-1 block text-sm font-medium text-gray-700">Employees</label><div className="max-h-40 overflow-y-auto rounded-lg border border-gray-300 p-2">{createEmployees.length===0?<p className="p-2 text-sm text-gray-500">No employees available.</p>:createEmployees.map(e=><label key={e.id} className="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700"><input type="checkbox" checked={createEmployeeIds.includes(e.id)} onChange={ev=>setCreateEmployeeIds(ids=>ev.target.checked?[...ids,e.id]:ids.filter(id=>id!==e.id))}/>{e.full_name}</label>)}</div><label className="mt-2 block text-sm font-medium text-gray-700">Add new employees (one name per line)</label><textarea rows={3} value={newEmployeeNames} onChange={e=>setNewEmployeeNames(e.target.value)} placeholder={'Employee One\nEmployee Two'} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/></div>
               <div className="md:col-span-2"><label className="mb-1 block text-sm font-medium text-gray-700">Notes</label><textarea rows={3} value={createDraft.notes} onChange={e=>setCreateDraft(d=>({...d,notes:e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/></div>
             </div>
@@ -1633,7 +1656,7 @@ export default function Inventory() {
                 </select>
                 {(editNewLocationName || !editDraft.location_id) && <input value={editNewLocationName} onChange={e=>setEditNewLocationName(e.target.value)} placeholder="New Location name" className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/>}
               </div>
-              {([['serial_number','S/N'],['mac_address','MAC'],['pc_name','PC Name'],['ip_address','IP'],['socket','SOCKET'],['document_number','EOASIS Doc. No.'],['invoice','Invoice'],['purchase_date','Purchase Date'],['warranty_until','Warranty Date'],['store','Store']] as [keyof CreateDraft,string][]).map(([key,label])=><div key={key}><label className="mb-1 block text-sm font-medium text-gray-700">{label}{key==='serial_number'?' (optional)':''}</label><input type={key==='purchase_date'||key==='warranty_until'?'date':'text'} inputMode={key==='document_number'?'numeric':undefined} value={editDraft[key]} onChange={e=>setEditDraft(d=>({...d,[key]:e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/></div>)}
+              {([['serial_number','S/N'],['mac_address','MAC'],['pc_name','PC Name'],['ip_address','IP'],['socket','SOCKET'],['document_number','EOASIS Doc. No.'],['invoice','Invoice'],['purchase_date','Purchase Date'],['warranty_until','Warranty Date'],['store','Store']] as [keyof CreateDraft,string][]).map(([key,label])=><div key={key}><label className="mb-1 block text-sm font-medium text-gray-700">{label}{key==='serial_number'?' (optional)':''}</label><input type={key==='purchase_date'||key==='warranty_until'?'date':'text'} inputMode={key==='document_number'?'numeric':undefined} value={editDraft[key]} maxLength={key === 'mac_address' ? 17 : undefined} placeholder={key === 'mac_address' ? '00:1A:2B:3C:4D:5E' : undefined} autoCapitalize={key === 'mac_address' ? 'characters' : undefined} onChange={e=>setEditDraft(d=>({...d,[key]:key === 'mac_address' ? formatMacAddress(e.target.value) : e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/></div>)}
               <div className="md:col-span-2 space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <label className="block text-sm font-medium text-gray-700">Assigned Employees</label>

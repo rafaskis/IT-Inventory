@@ -30,6 +30,24 @@ const isPositiveInteger = (value: unknown) => {
   return Number.isSafeInteger(number) && number > 0
 }
 
+const normalizeMacAddress = (item: Record<string, unknown>): string | null => {
+  if (!Object.prototype.hasOwnProperty.call(item, 'mac_address')) return null
+  const value = item.mac_address
+  if (value === null || value === '') return null
+  if (typeof value !== 'string') return 'MAC address must be text or empty.'
+
+  const trimmed = value.trim()
+  const isCompact = /^[0-9a-f]{12}$/i.test(trimmed)
+  const isColonSeparated = /^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(trimmed)
+  if (!isCompact && !isColonSeparated) {
+    return 'MAC address must contain exactly 12 hexadecimal characters in the format 00:1A:2B:3C:4D:5E, or be left empty.'
+  }
+
+  const hex = trimmed.replace(/:/g, '').toUpperCase()
+  item.mac_address = hex.match(/.{2}/g)!.join(':')
+  return null
+}
+
 const normalizeFilterIds = (value: unknown): number[] | null => {
   if (value === undefined || value === null || value === '') return []
   const values = Array.isArray(value) ? value : [value]
@@ -479,6 +497,9 @@ const inventorySelect = `
       if (!body.item || typeof body.item !== 'object' || Array.isArray(body.item)) {
         return jsonResponse({ error: 'Item details are required.' }, 400)
       }
+      const item = { ...(body.item as Record<string, unknown>) }
+      const macError = normalizeMacAddress(item)
+      if (macError) return jsonResponse({ error: macError }, 400)
 
       const employeeIds = normalizeEmployeeIds(body.employee_ids ?? [])
       if (employeeIds === null) {
@@ -492,7 +513,7 @@ const inventorySelect = `
       }
       const optionalName = (value: unknown) => typeof value === 'string' ? value.trim() : ''
       const { data, error } = await serviceClient.rpc('inventory_create_item_with_related', {
-        p_item: body.item,
+        p_item: item,
         p_employee_ids: employeeIds,
         p_new_employee_names: newEmployeeNames,
         p_new_item_type_name: optionalName(body.new_item_type_name) || null,
@@ -513,6 +534,10 @@ const inventorySelect = `
       if (!body.item || typeof body.item !== 'object' || Array.isArray(body.item)) {
         return jsonResponse({ error: 'Item changes are required.' }, 400)
       }
+      const item = { ...(body.item as Record<string, unknown>) }
+      const macError = normalizeMacAddress(item)
+      if (macError) return jsonResponse({ error: macError }, 400)
+
       const employeeIds = normalizeEmployeeIds(body.employee_ids ?? [])
       if (employeeIds === null) {
         return jsonResponse({ error: 'Employee IDs must be an array of valid IDs.' }, 400)
@@ -525,7 +550,7 @@ const inventorySelect = `
       const optionalName = (value: unknown) => typeof value === 'string' ? value.trim() : ''
       const { data, error } = await serviceClient.rpc('inventory_update_item_with_related', {
         p_id: Number(body.id),
-        p_item: body.item,
+        p_item: item,
         p_employee_ids: employeeIds,
         p_new_employee_names: newEmployeeNames,
         p_new_item_type_name: optionalName(body.new_item_type_name) || null,
@@ -546,6 +571,9 @@ const inventorySelect = `
       if (!body.item || typeof body.item !== 'object' || Array.isArray(body.item)) {
         return jsonResponse({ error: 'Item changes are required.' }, 400)
       }
+      const item = { ...(body.item as Record<string, unknown>) }
+      const macError = normalizeMacAddress(item)
+      if (macError) return jsonResponse({ error: macError }, 400)
 
       let employeeIds: number[] | null = null
       if (body.employee_ids !== undefined && body.employee_ids !== null) {
@@ -557,7 +585,7 @@ const inventorySelect = `
 
       const { data, error } = await serviceClient.rpc('inventory_update_item', {
         p_id: Number(body.id),
-        p_item: body.item,
+        p_item: item,
         p_employee_ids: employeeIds,
         p_actor_id: actorId,
         p_actor_username: actorUsername,
