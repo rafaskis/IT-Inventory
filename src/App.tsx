@@ -11,6 +11,9 @@ import AuditLogs from './components/AuditLogs';
 import SettingsPage from './components/Settings';
 import GlobalSearch from './components/GlobalSearch';
 import Login from './components/Login'
+import { LanguageProvider, useLanguage, formatNumber, type Language } from './i18n/LanguageProvider'
+import ukFlag from './assets/uk.png'
+import greekFlag from './assets/gr.png'
 import {
   LayoutDashboard,
   Monitor,
@@ -26,6 +29,8 @@ import {
   Boxes,
   Menu,
   X,
+  Check,
+  ChevronDown,
 } from 'lucide-react'
 
 const navigation = [
@@ -63,14 +68,16 @@ function Dashboard({
   role,
   userId,
   onSignOut,
+  preferredPage,
 }: {
   username: string
   role: string
   userId: string
+  preferredPage: string
   onSignOut: () => void
 }) {
+  const { t, language, setLanguage } = useLanguage()
   const pageStorageKey = `it-inventory-active-page:${userId}`
-  const preferenceStorageKey = `it-inventory-default-page:${userId}`
   const allowedPages = navigation
     .filter((item) => {
       if (item.name === 'Accounts') return role === 'administrator'
@@ -83,7 +90,6 @@ function Dashboard({
     .map((item) => item.name)
   const [activePage, setActivePage] = useState(() => {
     const savedPage = sessionStorage.getItem(pageStorageKey)
-    const preferredPage = localStorage.getItem(preferenceStorageKey)
     const validPages = [...allowedPages, 'Settings']
     if (savedPage && validPages.includes(savedPage)) return savedPage
     if (preferredPage && allowedPages.includes(preferredPage)) return preferredPage
@@ -94,10 +100,34 @@ function Dashboard({
   }, [pageStorageKey, activePage])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
+  const [languageMenuOpen, setLanguageMenuOpen] = useState(false)
+  const [languageSwitchError, setLanguageSwitchError] = useState('')
   const [dashboardLoading, setDashboardLoading] = useState(true)
   const [dashboardError, setDashboardError] = useState<string | null>(null)
   const [totalEquipment, setTotalEquipment] = useState(0)
   const [recentInventory, setRecentInventory] = useState<DashboardInventoryRow[]>([])
+
+  async function changeHeaderLanguage(nextLanguage: Language) {
+    setLanguageSwitchError('')
+    if (nextLanguage === language) {
+      setLanguageMenuOpen(false)
+      return
+    }
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ preferred_language: nextLanguage })
+      .eq('id', userId)
+
+    if (error) {
+      console.error('Unable to save language preference:', error)
+      setLanguageSwitchError(t('Unable to save your language preference.'))
+      return
+    }
+
+    setLanguage(nextLanguage)
+    setLanguageMenuOpen(false)
+  }
 
   const loadDashboard = async () => {
     setDashboardLoading(true)
@@ -155,7 +185,7 @@ function Dashboard({
         <button
           className="fixed inset-0 z-30 bg-black/40 lg:hidden"
           onClick={() => setSidebarOpen(false)}
-          aria-label="Close navigation"
+          aria-label={t("Close navigation")}
         />
       )}
 
@@ -171,22 +201,20 @@ function Dashboard({
             </div>
             <div>
               <h1 className="text-lg font-bold tracking-wide">MJPO Inventory</h1>
-              <p className="text-xs text-slate-400">Management System</p>
+              <p className="text-xs text-slate-400">{t("Management System")}</p>
             </div>
           </div>
           <button
             className="lg:hidden"
             onClick={() => setSidebarOpen(false)}
-            aria-label="Close menu"
+            aria-label={t("Close menu")}
           >
             <X size={21} />
           </button>
         </div>
 
         <div className="px-4 pt-7">
-          <p className="mb-3 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
-            Main Menu
-          </p>
+          <p className="mb-3 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">{t("Main Menu")}</p>
 
           <nav className="space-y-1">
 {navigation
@@ -220,7 +248,7 @@ function Dashboard({
                   }`}
                 >
                   <Icon size={19} />
-                  {item.name}
+                  {t(item.name)}
                 </button>
               )
             })}
@@ -236,14 +264,12 @@ function Dashboard({
                 : 'text-slate-400 hover:bg-slate-800 hover:text-white'
             }`}
           >
-            <Settings size={19} />
-            Settings
-          </button>
+            <Settings size={19} />{t("Settings")}</button>
 
 
 <button
   onClick={onSignOut}
-  title="Sign out"
+  title={t("Sign out")}
   className="mt-4 flex w-full items-center gap-3 rounded-lg bg-slate-800 p-3 text-left hover:bg-slate-700"
 >
   <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-500 text-sm font-bold">
@@ -252,10 +278,10 @@ function Dashboard({
   <div className="min-w-0">
     <p className="text-sm font-medium">{username}</p>
     <p className="text-xs capitalize text-slate-400">
-      {role.replaceAll('_', ' ')}
+      {t(role === 'administrator' ? 'Administrator' : role === 'inventory_manager' ? 'Inventory Manager' : 'Viewer')}
     </p>
   </div>
-  <span className="ml-auto text-xs text-slate-400">Sign out</span>
+  <span className="ml-auto text-xs text-slate-400">{t("Sign out")}</span>
 </button>
 
         </div>
@@ -267,17 +293,15 @@ function Dashboard({
             <button
               className="rounded-lg p-2 hover:bg-slate-100 lg:hidden"
               onClick={() => setSidebarOpen(true)}
-              aria-label="Open menu"
+              aria-label={t("Open menu")}
             >
               <Menu size={22} />
             </button>
             <div>
               <h2 className="text-xl font-bold text-slate-900">
-                {activePage}
+                {t(activePage)}
               </h2>
-              <p className="hidden text-xs text-slate-500 sm:block">
-                IT Equipment Management
-              </p>
+              <p className="hidden text-xs text-slate-500 sm:block">{t("IT Equipment Management")}</p>
             </div>
           </div>
 
@@ -285,16 +309,71 @@ function Dashboard({
             <button
               onClick={() => setGlobalSearchOpen(true)}
               className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
-              aria-label="Search"
-              title="Search (Ctrl+K)"
+              aria-label={t("Search")}
+              title={t("Search (Ctrl+K)")}
             >
               <Search size={20} />
             </button>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setLanguageSwitchError('')
+                  setLanguageMenuOpen((open) => !open)
+                }}
+                className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-xl shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                aria-label={t('Application language')}
+                aria-haspopup="menu"
+                aria-expanded={languageMenuOpen}
+                title={t('Application language')}
+              >
+                <img
+                  src={language === 'el' ? greekFlag : ukFlag}
+                  alt=""
+                  aria-hidden="true"
+                  className="h-7 w-7 object-contain"
+                />
+                <ChevronDown size={12} className="ml-0.5 text-slate-500" />
+              </button>
+              {languageMenuOpen && (
+                <div
+                  role="menu"
+                  aria-label={t('Application language')}
+                  className="absolute right-0 top-full z-50 mt-2 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => void changeHeaderLanguage('en')}
+                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-slate-50 ${language === 'en' ? 'font-semibold text-slate-900' : 'text-slate-700'}`}
+                  >
+                    <img src={ukFlag} alt="" aria-hidden="true" className="h-6 w-6 object-contain" />
+                    <span>English</span>
+                    {language === 'en' && <Check size={16} className="ml-auto text-emerald-600" />}
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => void changeHeaderLanguage('el')}
+                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-slate-50 ${language === 'el' ? 'font-semibold text-slate-900' : 'text-slate-700'}`}
+                  >
+                    <img src={greekFlag} alt="" aria-hidden="true" className="h-6 w-6 object-contain" />
+                    <span>Ελληνικά</span>
+                    {language === 'el' && <Check size={16} className="ml-auto text-emerald-600" />}
+                  </button>
+                  {languageSwitchError && (
+                    <p role="alert" className="border-t border-slate-100 px-3 py-2 text-xs text-red-600">
+                      {languageSwitchError}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="hidden h-8 border-l border-slate-200 sm:block" />
             <div className="hidden text-right sm:block">
 <p className="text-sm font-semibold text-slate-800">{username}</p>
 <p className="text-xs capitalize text-slate-500">
-  {role.replaceAll('_', ' ')}
+  {t(role === 'administrator' ? 'Administrator' : role === 'inventory_manager' ? 'Inventory Manager' : 'Viewer')}
 </p>
             </div>
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">
@@ -309,10 +388,8 @@ function Dashboard({
     <Accounts currentUsername={username} />
   ) : (
     <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
-      <h3 className="font-semibold text-red-700">Access denied</h3>
-      <p className="mt-2 text-sm text-red-600">
-        You do not have permission to access account management.
-      </p>
+      <h3 className="font-semibold text-red-700">{t("Access denied")}</h3>
+      <p className="mt-2 text-sm text-red-600">{t("You do not have permission to access account management.")}</p>
     </div>
   )
 ) : activePage === 'Catalogues' ? (
@@ -320,10 +397,8 @@ function Dashboard({
     <Catalogues />
   ) : (
     <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
-      <h3 className="font-semibold text-red-700">Access denied</h3>
-      <p className="mt-2 text-sm text-red-600">
-        You do not have permission to manage catalogues.
-      </p>
+      <h3 className="font-semibold text-red-700">{t("Access denied")}</h3>
+      <p className="mt-2 text-sm text-red-600">{t("You do not have permission to manage catalogues.")}</p>
     </div>
   )
 ) : activePage === 'Employees' ? (
@@ -331,10 +406,8 @@ function Dashboard({
     <Employees />
   ) : (
     <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
-      <h3 className="font-semibold text-red-700">Access denied</h3>
-      <p className="mt-2 text-sm text-red-600">
-        You do not have permission to manage employees.
-      </p>
+      <h3 className="font-semibold text-red-700">{t("Access denied")}</h3>
+      <p className="mt-2 text-sm text-red-600">{t("You do not have permission to manage employees.")}</p>
     </div>
   )
 ) : activePage === 'Locations' ? (
@@ -342,10 +415,8 @@ function Dashboard({
     <Locations />
   ) : (
     <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
-      <h3 className="font-semibold text-red-700">Access denied</h3>
-      <p className="mt-2 text-sm text-red-600">
-        You do not have permission to manage locations.
-      </p>
+      <h3 className="font-semibold text-red-700">{t("Access denied")}</h3>
+      <p className="mt-2 text-sm text-red-600">{t("You do not have permission to manage locations.")}</p>
     </div>
   )
 ) : activePage === 'Audit Logs' ? (
@@ -353,8 +424,8 @@ function Dashboard({
     <AuditLogs role={role} />
   ) : (
     <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
-      <h3 className="font-semibold text-red-700">Access denied</h3>
-      <p className="mt-2 text-sm text-red-600">You do not have permission to access audit history.</p>
+      <h3 className="font-semibold text-red-700">{t("Access denied")}</h3>
+      <p className="mt-2 text-sm text-red-600">{t("You do not have permission to access audit history.")}</p>
     </div>
   )
 ) : activePage === 'Inventory' ? (
@@ -363,72 +434,60 @@ function Dashboard({
             <>
               <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
                 <div>
-                  <h3 className="text-2xl font-bold text-slate-900">
-                    Dashboard Overview
-                  </h3>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Here's an overview of your company's IT equipment.
-                  </p>
+                  <h3 className="text-2xl font-bold text-slate-900">{t("Dashboard Overview")}</h3>
+                  <p className="mt-1 text-sm text-slate-500">{t("Here's an overview of your company's IT equipment.")}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm" title="Total registered inventory items">
+                  <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm" title={t("Total registered inventory items")}>
                     <Package size={17} className="text-blue-600" />
-                    <span className="text-xs font-medium text-slate-500">Total Equipment</span>
-                    <span className="text-sm font-bold tabular-nums text-slate-900">{dashboardLoading ? '…' : totalEquipment.toLocaleString()}</span>
+                    <span className="text-xs font-medium text-slate-500">{t("Total Equipment")}</span>
+                    <span className="text-sm font-bold tabular-nums text-slate-900">{dashboardLoading ? '…' : formatNumber(totalEquipment, language)}</span>
                   </div>
                   <button
                     onClick={() => void loadDashboard()}
                     disabled={dashboardLoading}
                     className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                   >
-                    {dashboardLoading ? 'Refreshing…' : 'Refresh'}
+                    {dashboardLoading ? t('Refreshing…') : t('Refresh')}
                   </button>
                   <button
                     onClick={() => setActivePage('Inventory')}
                     className="flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
                   >
-                    <Plus size={18} />
-                    View Inventory
-                  </button>
+                    <Plus size={18} />{t("View Inventory")}</button>
                 </div>
               </div>
 
               <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                 <div className="flex flex-col justify-between gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center">
                   <div>
-                    <h3 className="font-bold text-slate-900">
-                      Recent Inventory
-                    </h3>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Recently registered equipment
-                    </p>
+                    <h3 className="font-bold text-slate-900">{t("Recent Inventory")}</h3>
+                    <p className="mt-1 text-xs text-slate-500">{t("Recently registered equipment")}</p>
                   </div>
                   <button
                     onClick={() => setActivePage('Inventory')}
                     className="text-left text-sm font-semibold text-blue-600 hover:text-blue-800 sm:text-right"
-                  >
-                    View all inventory →
-                  </button>
+                  >{t("View all inventory →")}</button>
                 </div>
 
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[850px] text-left text-sm">
                     <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                       <tr>
-                        <th className="px-5 py-4 font-semibold">Item ID</th>
-                        <th className="px-5 py-4 font-semibold">Equipment</th>
-                        <th className="px-5 py-4 font-semibold">Serial Number</th>
-                        <th className="px-5 py-4 font-semibold">User</th>
-                        <th className="px-5 py-4 font-semibold">Location</th>
+                        <th className="px-5 py-4 font-semibold">{t("Item ID")}</th>
+                        <th className="px-5 py-4 font-semibold">{t("Equipment")}</th>
+                        <th className="px-5 py-4 font-semibold">{t("Serial Number")}</th>
+                        <th className="px-5 py-4 font-semibold">{t("EMPLOYEE")}</th>
+                        <th className="px-5 py-4 font-semibold">{t("Location")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {dashboardLoading ? (
-                        <tr><td colSpan={5} className="px-5 py-10 text-center text-slate-500">Loading recent inventory…</td></tr>
+                        <tr><td colSpan={5} className="px-5 py-10 text-center text-slate-500">{t("Loading recent inventory…")}</td></tr>
                       ) : dashboardError ? (
-                        <tr><td colSpan={5} className="px-5 py-10 text-center text-red-600">{dashboardError}</td></tr>
+                        <tr><td colSpan={5} className="px-5 py-10 text-center text-red-600">{t(dashboardError)}</td></tr>
                       ) : recentInventory.length === 0 ? (
-                        <tr><td colSpan={5} className="px-5 py-10 text-center text-slate-500">No inventory items have been registered yet.</td></tr>
+                        <tr><td colSpan={5} className="px-5 py-10 text-center text-slate-500">{t("No inventory items have been registered yet.")}</td></tr>
                       ) : recentInventory.map((item) => (
                         <tr key={item.id} className="hover:bg-slate-50">
                           <td className="whitespace-nowrap px-5 py-4 font-medium text-blue-600">{item.item_code}</td>
@@ -437,7 +496,7 @@ function Dashboard({
                             <p className="mt-1 text-xs text-slate-400">{item.brand?.item_type?.name ?? '—'}</p>
                           </td>
                           <td className="px-5 py-4 text-slate-600">{item.serial_number || '—'}</td>
-                          <td className="px-5 py-4 text-slate-600">{formatDashboardEmployee(item.assignments)}</td>
+                          <td className="px-5 py-4 text-slate-600">{formatDashboardEmployee(item.assignments) === 'SHARED' ? t('SHARED') : formatDashboardEmployee(item.assignments)}</td>
                           <td className="px-5 py-4 text-slate-600">{item.location?.name ?? '—'}</td>
                         </tr>
                       ))}
@@ -446,7 +505,11 @@ function Dashboard({
                 </div>
 
                 <div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-400">
-                  {dashboardLoading ? 'Loading records…' : `Displaying ${recentInventory.length} most recently registered record${recentInventory.length === 1 ? '' : 's'}`}
+                  {dashboardLoading
+                    ? t('Loading records…')
+                    : recentInventory.length === 1
+                      ? t('Εμφανίζεται 1 πιο πρόσφατη καταχώριση')
+                      : t('Εμφανίζονται οι πιο πρόσφατες καταχωρίσεις')}
                 </div>
               </section>
             </>
@@ -455,9 +518,7 @@ function Dashboard({
               username={username}
               role={role}
               userId={userId}
-              onDefaultPageChange={(page) => {
-                localStorage.setItem(preferenceStorageKey, page)
-              }}
+              preferredPage={preferredPage}
             />
           ) : (
             <div className="flex min-h-[350px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white text-center">
@@ -465,17 +526,13 @@ function Dashboard({
                 <Package size={30} />
               </div>
               <h3 className="mt-4 text-lg font-semibold text-slate-800">
-                {activePage}
+                {t(activePage)}
               </h3>
-              <p className="mt-2 max-w-sm text-sm text-slate-500">
-                This section will be developed in a later stage.
-              </p>
+              <p className="mt-2 max-w-sm text-sm text-slate-500">{t("This section will be developed in a later stage.")}</p>
               <button
                 onClick={() => setActivePage('Dashboard')}
                 className="mt-5 text-sm font-semibold text-blue-600 hover:text-blue-800"
-              >
-                Return to Dashboard
-              </button>
+              >{t("Return to Dashboard")}</button>
             </div>
           )}
         </main>
@@ -494,12 +551,15 @@ function Dashboard({
   )
 }
 
-function App() {
+function AppContent() {
+  const { setLanguage, t } = useLanguage()
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<{
     username: string
     role: string
     is_active: boolean
+    preferred_language: 'el' | 'en'
+    preferred_page: string
   } | null>(null)
 
   const [authLoading, setAuthLoading] = useState(true)
@@ -542,6 +602,7 @@ function App() {
       // The auth listener already clears the profile on sign-out; this handles initial no-session state.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setProfile(null)
+      setLanguage('el')
       setProfileLoading(false)
       return
     }
@@ -553,7 +614,7 @@ function App() {
 
       const { data, error } = await supabase
         .from('profiles')
-        .select('username, role, is_active')
+        .select('username, role, is_active, preferred_language, preferred_page')
         .eq('id', session!.user.id)
         .single()
 
@@ -566,6 +627,7 @@ function App() {
       }
 
       setProfile(data)
+      setLanguage(data.preferred_language === 'en' ? 'en' : 'el')
     }
 
     loadProfile().finally(() => {
@@ -577,7 +639,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [session])
+  }, [session, setLanguage])
 
   // Deactivation bans prevent future token refreshes, but an already-issued
   // access token can remain present in an open tab until it expires. Recheck
@@ -657,9 +719,7 @@ function App() {
   if (authLoading || (session && profileLoading)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100">
-        <p className="text-sm font-medium text-slate-500">
-          Loading MJPO Inventory...
-        </p>
+        <p className="text-sm font-medium text-slate-500">{t("Loading MJPO Inventory...")}</p>
       </div>
     )
   }
@@ -673,11 +733,21 @@ function App() {
       username={profile.username}
       role={profile.role}
       userId={session.user.id}
+      preferredPage={profile.preferred_page || 'Dashboard'}
       onSignOut={() => {
         sessionStorage.removeItem(`it-inventory-active-page:${session.user.id}`)
+        setLanguage('el')
         void supabase.auth.signOut()
       }}
     />
+  )
+}
+
+function App() {
+  return (
+    <LanguageProvider>
+      <AppContent />
+    </LanguageProvider>
   )
 }
 

@@ -3,8 +3,10 @@ import { useState } from 'react'
 import { Eye, EyeOff, LockKeyhole, User } from 'lucide-react'
 import cyprusLogo from '../assets/cyprus-republic-logo.png'
 import { supabase } from '../lib/supabase'
+import { useLanguage } from '../i18n/LanguageProvider'
 
 export default function Login() {
+  const { t } = useLanguage()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -81,25 +83,17 @@ export default function Login() {
             MJPO Inventory
           </h1>
 
-          <p className="mt-2 text-sm text-slate-500">
-            Internal IT Equipment Management System
-          </p>
+          <p className="mt-2 text-sm text-slate-500">{t("Internal IT Equipment Management System")}</p>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-          <h2 className="text-xl font-bold text-slate-900">
-            Welcome back
-          </h2>
+          <h2 className="text-xl font-bold text-slate-900">{t("Welcome!")}</h2>
 
-          <p className="mt-2 text-sm text-slate-500">
-            Sign in to access the inventory system.
-          </p>
+          <p className="mt-2 text-sm text-slate-500">{t("Sign in to access the inventory system.")}</p>
 
           <form onSubmit={handleLogin} className="mt-7 space-y-5">
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">
-                Username
-              </label>
+              <label className="mb-2 block text-sm font-medium text-slate-700">{t("Username")}</label>
 
               <div className="relative">
                 <User
@@ -112,7 +106,7 @@ export default function Login() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   autoComplete="username"
-                  placeholder="Enter your username"
+                  placeholder={t("Enter your username")}
                   disabled={loading}
                   className="w-full rounded-lg border border-slate-300 py-3 pl-10 pr-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 />
@@ -120,9 +114,7 @@ export default function Login() {
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">
-                Password
-              </label>
+              <label className="mb-2 block text-sm font-medium text-slate-700">{t("Password")}</label>
 
               <div className="relative">
                 <LockKeyhole
@@ -135,7 +127,7 @@ export default function Login() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"
-                  placeholder="Enter your password"
+                  placeholder={t("Enter your password")}
                   disabled={loading}
                   className="w-full rounded-lg border border-slate-300 py-3 pl-10 pr-12 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 />
@@ -144,7 +136,7 @@ export default function Login() {
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-label={showPassword ? t('Hide password') : t('Show password')}
                 >
                   {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
                 </button>
@@ -153,7 +145,7 @@ export default function Login() {
 
             {error && (
               <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                {error}
+                {t(error)}
               </div>
             )}
 
@@ -162,14 +154,12 @@ export default function Login() {
               disabled={loading}
               className="flex w-full items-center justify-center rounded-lg bg-blue-600 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading ? t('Signing in...') : t('Sign In')}
             </button>
           </form>
         </div>
 
-        <p className="mt-6 text-center text-xs text-slate-400">
-          Authorized personnel only
-        </p>
+        <p className="mt-6 text-center text-xs text-slate-400">{t("Authorized personnel only")}</p>
       </div>
     </div>
   )

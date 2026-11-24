@@ -15,6 +15,7 @@ import {
   FileDown,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { formatNumber, useLanguage, type Language } from '../i18n/LanguageProvider';
 
 type Employee = {
   id: number;
@@ -97,7 +98,7 @@ type ColumnDefinition = {
 };
 
 const COLUMNS: ColumnDefinition[] = [
-  { key: 'item_code', label: 'Item Code', sortField: 'item_code', defaultVisible: false },
+  { key: 'item_code', label: 'Item ID', sortField: 'item_code', defaultVisible: false },
   { key: 'item_type', label: 'Item Type', sortField: 'item_type', defaultVisible: true },
   { key: 'brand', label: 'Brand', sortField: 'brand', defaultVisible: true },
   { key: 'model', label: 'Model', sortField: 'model', defaultVisible: true },
@@ -149,12 +150,12 @@ function displayEmployees(employees: Employee[] | null | undefined) {
   return employees[0].full_name;
 }
 
-function formatDate(value: string | null) {
+function formatDate(value: string | null, language: Language = 'en') {
   if (!value) return '—';
-  const date = new Date(`${value}T00:00:00`);
+  const date = new Date(Date.UTC(Number(value.slice(0, 4)), Number(value.slice(5, 7)) - 1, Number(value.slice(8, 10))));
   return Number.isNaN(date.getTime())
     ? value
-    : new Intl.DateTimeFormat('en-GB').format(date);
+    : new Intl.DateTimeFormat(language === 'el' ? 'el-CY' : 'en-GB', { timeZone: 'UTC' }).format(date);
 }
 
 function escapeHtml(value: unknown) {
@@ -166,23 +167,22 @@ function escapeHtml(value: unknown) {
     .replace(/'/g, '&#39;');
 }
 
-function inventoryCellValue(item: InventoryItem, key: ColumnKey) {
+function inventoryCellValue(item: InventoryItem, key: ColumnKey, language: Language = 'en') {
   switch (key) {
     case 'item_code': return item.item_code;
     case 'item_type': return item.brand?.item_type?.name ?? '—';
     case 'brand': return item.brand?.name ?? '—';
     case 'model': return item.model?.name ?? '—';
     case 'serial_number': return displayValue(item.serial_number);
-    case 'employee': return displayEmployees(item.employees);
-    case 'location': return item.location?.name ?? '—';
+case 'employee': return displayEmployees(item.employees);    case 'location': return item.location?.name ?? '—';
     case 'notes': return displayValue(item.notes);
     case 'document_number': return displayValue(item.document_number);
     case 'mac_address': return displayMacAddress(item.mac_address);
     case 'pc_name': return displayValue(item.pc_name);
     case 'ip_address': return displayValue(item.ip_address);
     case 'socket': return displayValue(item.socket);
-    case 'purchase_date': return formatDate(item.purchase_date);
-    case 'warranty_until': return formatDate(item.warranty_until);
+    case 'purchase_date': return formatDate(item.purchase_date, language);
+    case 'warranty_until': return formatDate(item.warranty_until, language);
     case 'invoice': return displayValue(item.invoice);
     case 'store': return displayValue(item.store);
   }
@@ -192,39 +192,56 @@ function buildInventoryPrintHtml(
   rows: InventoryItem[],
   columns: ColumnKey[],
   title: string,
-  signatureEmployee?: string,
+  signatureEmployee: string | undefined,
+  translate: (key: string, values?: Record<string, string | number>) => string,
+  language: Language,
 ) {
   const definitions = COLUMNS.filter((column) => columns.includes(column.key));
-  const headers = definitions.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('');
-  const body = rows.map((item) => `<tr>${definitions.map((column) => `<td>${escapeHtml(inventoryCellValue(item, column.key))}</td>`).join('')}</tr>`).join('');
-  const exportedAt = new Intl.DateTimeFormat('en-GB', {
-    dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Nicosia',
-  }).format(new Date());
+  const numberHeading = language === 'el' ? 'Α/Α' : 'No.';
+  const headers = `<th class="row-number">${numberHeading}</th>` + definitions.map((column) => `<th>${escapeHtml(translate(column.label))}</th>`).join('');
+  const body = rows.map((item, index) => `<tr><td class="row-number">${index + 1}</td>${definitions.map((column) => `<td>${escapeHtml(column.key === 'employee' && item.employees?.length > 1 ? translate('SHARED') : inventoryCellValue(item, column.key, 'en'))}</td>`).join('')}</tr>`).join('');
+  const exportedAt = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Nicosia' }).format(new Date());
+  // Put the signature block in the table footer so print pagination accounts for
+  // its height. The blank signing area stays above the line; the selected employee
+  // name is printed below it, with the same bold formatting as before.
   const debitFooter = signatureEmployee ? `
-    <div class="signature-footer">
-      <div class="employee-name">${escapeHtml(signatureEmployee)}</div>
-      <div class="signature-line"></div>
-      <div class="signature-label">Signature</div>
-    </div>` : '';
-  const pageMargin = signatureEmployee ? '10mm 10mm 38mm 10mm' : '10mm 10mm 16mm 10mm';
+        <tfoot>
+          <tr class="signature-row">
+            <td class="signature-cell" colspan="${definitions.length + 1}">
+              <div class="signature-footer">
+                <div class="signature-space"></div>
+                <div class="signature-line"></div>
+                <div class="signature-name">${escapeHtml(signatureEmployee)}</div>
+              </div>
+            </td>
+          </tr>
+        </tfoot>` : '';
+  const pageMargin = '10mm 10mm 18mm 10mm';
   return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
     <style>
       @page { size: A4 landscape; margin: ${pageMargin}; }
-      @page { @bottom-left { content: "${escapeHtml(title)} · ${escapeHtml(exportedAt)}"; font: 8px Arial, sans-serif; color: #666; } @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 8px Arial, sans-serif; color: #666; } }
-      * { box-sizing: border-box; } body { font-family: Arial, Helvetica, sans-serif; color: #222; font-size: 9px; }
-      h1 { font-size: 18px; margin: 0 0 5px; } .meta { color: #555; font-size: 9px; margin-bottom: 14px; }
-      table { width: 100%; border-collapse: collapse; table-layout: auto; } thead { display: table-header-group; }
-      th { background: #e9edf2; font-weight: 700; text-align: left; } th, td { border: 1px solid #b9c0c8; padding: 5px 4px; vertical-align: top; overflow-wrap: anywhere; }
-      tr { break-inside: avoid; page-break-inside: avoid; } tbody tr:nth-child(even) { background: #f7f8fa; }
-      .signature-footer { position: fixed; right: 0; bottom: 0; width: 62mm; text-align: center; break-inside: avoid; page-break-inside: avoid; }
-      .employee-name { font-size: 10px; font-weight: 700; margin-bottom: 12mm; }
-      .signature-line { border-top: 1px solid #222; width: 100%; } .signature-label { margin-top: 3px; font-size: 9px; }
+      @page { @bottom-left { content: "${escapeHtml(translate('Export date: {date}', { date: exportedAt }))}"; font: 9.5px Arial, sans-serif; color: #666; } @bottom-right { content: "${escapeHtml(translate('Page'))} " counter(page) " ${escapeHtml(translate('of'))} " counter(pages); font: 9.5px Arial, sans-serif; color: #666; } }
+      * { box-sizing: border-box; }
+      body { font-family: Arial, Helvetica, sans-serif; color: #222; font-size: 11px; }
+      h1 { font-size: 22px; margin: 0 0 7px; }
+      table { width: 100%; border-collapse: collapse; table-layout: auto; font-size: 10.5px; }
+      thead { display: table-header-group; }
+      tfoot { display: table-footer-group; }
+      th { background: #e9edf2; font-weight: 700; text-align: left; }
+      th, td { border: 1px solid #b9c0c8; padding: 6px 5px; vertical-align: top; overflow-wrap: anywhere; }
+      th.row-number, td.row-number { width: 12mm; min-width: 12mm; text-align: center; white-space: nowrap; font-weight: 700; }
+      tr { break-inside: avoid; page-break-inside: avoid; }
+      tbody tr:nth-child(even) { background: #f7f8fa; }
+      tfoot tr.signature-row { break-inside: avoid; page-break-inside: avoid; }
+      tfoot td.signature-cell { border: 0; padding: 8mm 0 2mm; }
+      .signature-footer { width: 62mm; margin-left: auto; text-align: center; break-inside: avoid; page-break-inside: avoid; }
+      .signature-space { height: 18mm; }
+      .signature-line { border-top: 1px solid #222; width: 100%; }
+      .signature-name { margin-top: 4px; font-size: 12px; font-weight: 700; }
       @media screen { body { margin: 18px; } }
     </style></head><body>
       <h1>${escapeHtml(title)}</h1>
-      <div class="meta">${rows.length.toLocaleString()} item${rows.length === 1 ? '' : 's'} · Exported ${escapeHtml(exportedAt)}</div>
-      <table><thead><tr>${headers}</tr></thead><tbody>${body || `<tr><td colspan="${Math.max(definitions.length, 1)}">No inventory items found.</td></tr>`}</tbody></table>
-      ${debitFooter}
+      <table><thead><tr>${headers}</tr></thead><tbody>${body || `<tr><td colspan="${definitions.length + 1}">${escapeHtml(translate('No inventory items found.'))}</td></tr>`}</tbody>${debitFooter}</table>
       <script>window.addEventListener('load', function(){ window.focus(); setTimeout(function(){ window.print(); }, 300); });</${'script'}>
     </body></html>`;
 }
@@ -268,6 +285,7 @@ function MultiSelectFilter({
   onChange: (next: number[]) => void;
   disabled?: boolean;
 }) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const selectedNames = options
     .filter((option) => selected.includes(option.id))
@@ -282,7 +300,7 @@ function MultiSelectFilter({
         className="flex w-full items-center justify-between gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
       >
         <span className="min-w-0 truncate">
-          {label}
+          {t(label)}
           {selected.length > 0 && (
             <span className="ml-1.5 rounded-full bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700">
               {selected.length}
@@ -295,25 +313,25 @@ function MultiSelectFilter({
         <>
           <button
             type="button"
-            aria-label={`Close ${label} filter`}
+            aria-label={t('Close {name} filter', { name: t(label) })}
             className="fixed inset-0 z-20 cursor-default"
             onClick={() => setOpen(false)}
           />
           <div className="absolute left-0 z-30 mt-2 max-h-64 w-64 overflow-y-auto rounded-xl border border-gray-200 bg-white p-2 shadow-xl">
             <div className="mb-1 flex items-center justify-between px-2 py-1">
               <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                {label}
+                {t(label)}
               </span>
               <button
                 type="button"
                 onClick={() => onChange([])}
                 className="text-xs font-medium text-blue-600 hover:text-blue-800"
               >
-                Clear
+                {t('Clear')}
               </button>
             </div>
             {options.length === 0 ? (
-              <p className="px-2 py-3 text-sm text-gray-500">No options available.</p>
+              <p className="px-2 py-3 text-sm text-gray-500">{t('No options available.')}</p>
             ) : (
               options.map((option) => (
                 <label
@@ -340,13 +358,29 @@ function MultiSelectFilter({
         </>
       )}
       {selected.length > 0 && selectedNames.length === 0 && (
-        <span className="sr-only">{selected.length} selected values</span>
+        <span className="sr-only">{t('{count} selected values', { count: selected.length })}</span>
       )}
     </div>
   );
 }
 
 export default function Inventory() {
+  const { t, language } = useLanguage();
+  const translateMessage = (message: string) => {
+    let match = message.match(/^“(.+)” already exists or has already been added\.$/);
+    if (match) return t('“{name}” already exists or has already been added.', { name: match[1] });
+    match = message.match(/^Unknown filter: (.+)\.$/);
+    if (match) return t('Unknown filter: {field}.', { field: match[1] });
+    match = message.match(/^Invalid (.+) filter\. Supply up to 100 positive integer IDs\.$/);
+    if (match) return t('Invalid {field} filter. Supply up to 100 positive integer IDs.', { field: match[1] });
+    match = message.match(/^Use either (.+) or (.+), not both\.$/);
+    if (match) return t('Use either {plural} or {singular}, not both.', { plural: match[1], singular: match[2] });
+    match = message.match(/^Invalid (.+) date\.$/);
+    if (match) return t('Invalid {field} date.', { field: match[1] });
+    match = message.match(/^Bulk editing does not support the (.+) field\.$/);
+    if (match) return t('Bulk editing does not support the {field} field.', { field: match[1] });
+    return t(message);
+  };
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -695,7 +729,7 @@ export default function Inventory() {
       case 'brand': return displayValue(item.brand?.name);
       case 'model': return displayValue(item.model?.name);
       case 'serial_number': return displayValue(item.serial_number);
-      case 'employee': return displayEmployees(item.employees);
+      case 'employee': return item.employees?.length > 1 ? t('SHARED') : displayEmployees(item.employees);
       case 'location': return displayValue(item.location?.name);
       case 'notes': return displayValue(item.notes);
       case 'document_number': return displayValue(item.document_number);
@@ -703,8 +737,8 @@ export default function Inventory() {
       case 'pc_name': return displayValue(item.pc_name);
       case 'ip_address': return displayValue(item.ip_address);
       case 'socket': return displayValue(item.socket);
-      case 'purchase_date': return formatDate(item.purchase_date);
-      case 'warranty_until': return formatDate(item.warranty_until);
+      case 'purchase_date': return formatDate(item.purchase_date, language);
+      case 'warranty_until': return formatDate(item.warranty_until, language);
       case 'invoice': return displayValue(item.invoice);
       case 'store': return displayValue(item.store);
     }
@@ -744,7 +778,7 @@ export default function Inventory() {
       setCreateError('MAC address must contain exactly 12 hexadecimal characters (for example, 00:1A:2B:3C:4D:5E), or be left empty.');
       return;
     }
-    if (createDraft.document_number && !/^\d+$/.test(createDraft.document_number)) { setCreateError('Document No. must be a whole number.'); return; }
+    if (createDraft.document_number && !/^\d+$/.test(createDraft.document_number)) { setCreateError('EOASIS doc. no. must be a whole number.'); return; }
     setCreateSaving(true);
     const item: Record<string, unknown> = {
       serial_number: createDraft.serial_number,
@@ -841,7 +875,7 @@ export default function Inventory() {
       return;
     }
     if (editDraft.document_number && !/^\d+$/.test(editDraft.document_number)) {
-      setEditError('Document No. must be a whole number.');
+      setEditError('EOASIS doc. no. must be a whole number.');
       return;
     }
     setEditSaving(true);
@@ -1073,7 +1107,7 @@ export default function Inventory() {
     const selectedEmployee = exportType === 'debit'
       ? exportEmployees.find((employee) => String(employee.id) === exportEmployeeId)
       : undefined;
-    if (exportType === 'debit' && !selectedEmployee) { setExportError('Select an employee for the Export Issue Voucher.'); return; }
+    if (exportType === 'debit' && !selectedEmployee) { setExportError('Select an employee to export an issue voucher.'); return; }
 
     // Open the print window immediately from the user click so the browser does not block it.
     const printWindow = window.open('', '_blank');
@@ -1106,9 +1140,9 @@ export default function Inventory() {
         allRows.push(...(data.items as InventoryItem[]));
         targetPages = Math.max(1, Number(data.total_pages ?? 1));
       }
-      const title = exportType === 'debit' ? 'Issue Voucher' : 'Inventory';
+      const title = exportType === 'debit' ? `${t('Issue Voucher')} - ${selectedEmployee?.full_name ?? ''}` : t('Inventory');
       printWindow.document.open();
-      printWindow.document.write(buildInventoryPrintHtml(allRows, exportColumns, title, selectedEmployee?.full_name));
+      printWindow.document.write(buildInventoryPrintHtml(allRows, exportColumns, title, selectedEmployee?.full_name, t, language));
       printWindow.document.close();
       setExportType(null);
     } catch (caught) {
@@ -1126,21 +1160,21 @@ export default function Inventory() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Inventory</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{t('Inventory')}</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Browse and manage registered IT equipment.
+            {t('Browse and manage registered IT equipment.')}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => void openExportDialog('standard')} className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
-            <FileDown size={16} /> Export PDF
+          <button type="button" onClick={() => void openExportDialog('standard')} disabled={total === 0} className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+            <FileDown size={16} /> {t('Export inventory (PDF)')}
           </button>
-          <button type="button" onClick={() => void openExportDialog('debit')} className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
-            <FileDown size={16} /> Export Issue Voucher
+          <button type="button" onClick={() => void openExportDialog('debit')} disabled={total === 0} className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+            <FileDown size={16} /> {t('Export issue voucher (PDF)')}
           </button>
           {canManageInventory && (
             <button type="button" onClick={() => void openCreateForm()} className="flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
-              <Plus size={16} /> Add Item
+              <Plus size={16} /> {t('Add Item')}
             </button>
           )}
           <div className="relative">
@@ -1150,26 +1184,26 @@ export default function Inventory() {
               className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
             >
               <Columns3 size={16} />
-              Columns
+              {t('Columns')}
               <ChevronDown size={15} />
             </button>
             {columnMenuOpen && (
               <>
                 <button
                   type="button"
-                  aria-label="Close column menu"
+                  aria-label={t('Close column menu')}
                   className="fixed inset-0 z-20 cursor-default"
                   onClick={() => setColumnMenuOpen(false)}
                 />
                 <div className="absolute right-0 z-30 mt-2 max-h-[70vh] w-64 overflow-y-auto rounded-xl border border-gray-200 bg-white p-3 shadow-xl">
                   <div className="mb-2 flex items-center justify-between">
-                    <p className="text-sm font-semibold text-gray-800">Visible columns</p>
+                    <p className="text-sm font-semibold text-gray-800">{t('Visible columns')}</p>
                     <button
                       type="button"
                       onClick={resetColumns}
                       className="text-xs font-medium text-blue-600 hover:text-blue-800"
                     >
-                      Reset
+                      {t('Reset')}
                     </button>
                   </div>
                   {COLUMNS.map((column) => (
@@ -1180,7 +1214,7 @@ export default function Inventory() {
                         onChange={() => toggleColumn(column.key)}
                         className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
-                      {column.label}
+                      {t(column.label)}
                     </label>
                   ))}
                 </div>
@@ -1194,7 +1228,7 @@ export default function Inventory() {
             className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
             <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
-            Refresh
+            {t('Refresh')}
           </button>
         </div>
       </div>
@@ -1210,14 +1244,14 @@ export default function Inventory() {
               type="search"
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
-              placeholder="Search item code, S/N, MAC, PC name, invoice, store, EOASIS Doc. No. or notes..."
+              placeholder={t('Search item ID, S/N, MAC, PC name, invoice, store, EOASIS Doc. No. or notes...')}
               className="w-full rounded-lg border border-gray-300 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-blue-500"
             />
             {searchInput && (
               <button
                 type="button"
                 onClick={() => setSearchInput('')}
-                aria-label="Clear search"
+                aria-label={t('Clear search')}
                 className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
               >
                 <X size={15} />
@@ -1234,7 +1268,7 @@ export default function Inventory() {
             }`}
           >
             <Filter size={16} />
-            Filters
+            {t('Filters')}
             {activeFilterCount > 0 && (
               <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-xs text-white">
                 {activeFilterCount}
@@ -1248,7 +1282,7 @@ export default function Inventory() {
               onClick={clearAllFilters}
               className="text-sm font-medium text-blue-600 hover:text-blue-800"
             >
-              Clear all
+              {t('Clear all')}
             </button>
           )}
         </div>
@@ -1257,7 +1291,7 @@ export default function Inventory() {
           <div className="mt-4 space-y-4 border-t border-gray-100 pt-4">
             {filterOptionsError && (
               <p className="text-sm text-red-600">
-                Filter options could not be loaded: {filterOptionsError}
+                {t('Filter options could not be loaded: {message}', { message: t(filterOptionsError) })}
               </p>
             )}
             <div className="flex flex-wrap gap-3">
@@ -1306,18 +1340,18 @@ export default function Inventory() {
                   }}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
-                <span>Hide shared items?</span>
+                <span>{t('Hide shared items?')}</span>
               </label>
             </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  Purchase date
+                  {t('Purchase date')}
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <label className="flex items-center gap-2 text-xs text-gray-500">
-                    From
+                    {t('From')}
                     <input
                       type="date"
                       value={filters.purchase_date_from}
@@ -1327,7 +1361,7 @@ export default function Inventory() {
                     />
                   </label>
                   <label className="flex items-center gap-2 text-xs text-gray-500">
-                    To
+                    {t('To')}
                     <input
                       type="date"
                       value={filters.purchase_date_to}
@@ -1340,11 +1374,11 @@ export default function Inventory() {
               </div>
               <div className="space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  Warranty date
+                  {t('Warranty date')}
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <label className="flex items-center gap-2 text-xs text-gray-500">
-                    From
+                    {t('From')}
                     <input
                       type="date"
                       value={filters.warranty_date_from}
@@ -1354,7 +1388,7 @@ export default function Inventory() {
                     />
                   </label>
                   <label className="flex items-center gap-2 text-xs text-gray-500">
-                    To
+                    {t('To')}
                     <input
                       type="date"
                       value={filters.warranty_date_to}
@@ -1373,20 +1407,20 @@ export default function Inventory() {
       {error && (
         <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           <AlertCircle size={18} className="mt-0.5 shrink-0" />
-          <span>{error}</span>
+          <span>{translateMessage(error)}</span>
         </div>
       )}
 
       <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 p-5">
           <div>
-            <h2 className="font-semibold text-gray-900">Inventory list</h2>
+            <h2 className="font-semibold text-gray-900">{t('Inventory list')}</h2>
             <p className="mt-1 text-sm text-gray-500">
-              {total.toLocaleString()} items registered
+              {total === 1 ? t('1 registered inventory item') : t('{count} registered inventory items', { count: formatNumber(total, language) })}
             </p>
           </div>
           <div className="flex items-center gap-2 text-sm text-gray-600">
-            <span>Rows per page</span>
+            <span>{t('Rows per page')}</span>
             <select
               value={pageSize}
               onChange={(event) => {
@@ -1403,12 +1437,12 @@ export default function Inventory() {
         </div>
 
         {canManageInventory && selectedItemIds.length > 0 && <div className="flex flex-wrap items-center justify-between gap-3 border-b border-blue-100 bg-blue-50 px-5 py-3">
-          <div className="text-sm text-blue-900"><strong>{selectedItemIds.length}</strong> item{selectedItemIds.length === 1 ? '' : 's'} selected{total > items.length ? ' across the inventory list' : ''}.</div>
+          <div className="text-sm text-blue-900">{total > items.length ? t('{count} items selected across the inventory list', { count: selectedItemIds.length }) : t('{count} items selected', { count: selectedItemIds.length })}</div>
           <div className="flex flex-wrap items-center gap-3">
-            {total > items.length && total <= 500 && selectedItemIds.length !== total && <button type="button" onClick={() => void selectAllMatchingItems()} className="text-sm font-medium text-blue-700 underline hover:text-blue-900">Select all {total} matching items</button>}
-            {total > 500 && <span className="text-xs text-blue-800">Select all is available when filters return 500 items or fewer.</span>}
-            <button type="button" onClick={() => void openBulkForm()} disabled={selectedItemIds.length < 2 || bulkLoading} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{bulkLoading ? 'Loading preview…' : `Bulk edit ${selectedItemIds.length} items`}</button>
-            <button type="button" onClick={() => setSelectedItemIds([])} className="text-sm text-blue-700 hover:text-blue-900">Clear selection</button>
+            {total > items.length && total <= 500 && selectedItemIds.length !== total && <button type="button" onClick={() => void selectAllMatchingItems()} className="text-sm font-medium text-blue-700 underline hover:text-blue-900">{t('Select all {total} matching items', { total })}</button>}
+            {total > 500 && <span className="text-xs text-blue-800">{t('Select all is available when filters return 500 items or fewer.')}</span>}
+            <button type="button" onClick={() => void openBulkForm()} disabled={selectedItemIds.length < 2 || bulkLoading} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{bulkLoading ? t('Loading preview…') : t('Bulk edit {count} items', { count: selectedItemIds.length })}</button>
+            <button type="button" onClick={() => setSelectedItemIds([])} className="text-sm text-blue-700 hover:text-blue-900">{t('Clear selection')}</button>
           </div>
         </div>}
 
@@ -1417,7 +1451,7 @@ export default function Inventory() {
             <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
               <tr>
                 <th className="w-20 px-4 py-3">
-                  {canManageInventory && <input type="checkbox" checked={currentPageSelected} onChange={toggleCurrentPageSelection} aria-label="Select all items on this page" className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />}
+                  {canManageInventory && <input type="checkbox" checked={currentPageSelected} onChange={toggleCurrentPageSelection} aria-label={t('Select all items on this page')} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />}
                 </th>
                 {visibleColumnDefinitions.map((column) => (
                   <th key={column.key} className="whitespace-nowrap px-4 py-3 font-semibold">
@@ -1427,18 +1461,14 @@ export default function Inventory() {
                         onClick={() => handleSort(column.sortField)}
                         className="inline-flex items-center gap-1.5 hover:text-gray-900"
                       >
-                        {column.label}
+                        {t(column.label)}
                         {sortBy === column.sortField ? (
                           <span className="text-blue-600">{sortOrder === 'asc' ? '↑' : '↓'}</span>
                         ) : (
                           <ChevronsUpDown size={13} className="text-gray-400" />
                         )}
                       </button>
-                    ) : column.key === 'notes' ? (
-                      column.label
-                    ) : (
-                      column.label
-                    )}
+                    ) : t(column.label)}
                   </th>
                 ))}
               </tr>
@@ -1447,13 +1477,13 @@ export default function Inventory() {
               {loading ? (
                 <tr>
                   <td colSpan={visibleColumnDefinitions.length + 1} className="px-5 py-12 text-center text-sm text-gray-500">
-                    Loading inventory...
+                    {t('Loading inventory...')}
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
                   <td colSpan={visibleColumnDefinitions.length + 1} className="px-5 py-12 text-center text-sm text-gray-500">
-                    {total === 0 ? 'No inventory items have been registered yet.' : 'No inventory items found on this page.'}
+                    {t(total === 0 ? 'No inventory items have been registered yet.' : 'No inventory items found on this page.')}
                   </td>
                 </tr>
               ) : (
@@ -1461,8 +1491,8 @@ export default function Inventory() {
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="whitespace-nowrap px-4 py-3">
                       {canManageInventory && <div className="flex items-center gap-2">
-                        <input type="checkbox" checked={selectedItemIds.includes(item.id)} onChange={(event) => setSelectedItemIds((current) => { if (!event.target.checked) return current.filter((id) => id !== item.id); if (current.length >= 500) { setError('Bulk editing supports a maximum of 500 selected items.'); return current; } return [...new Set([...current, item.id])]; })} aria-label={`Select ${item.item_code}`} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                        <button type="button" onClick={() => void openEditForm(item)} title={`Edit ${item.item_code}`} aria-label={`Edit ${item.item_code}`} className="rounded-md p-1.5 text-gray-500 hover:bg-blue-50 hover:text-blue-700"><Pencil size={15} /></button>
+                        <input type="checkbox" checked={selectedItemIds.includes(item.id)} onChange={(event) => setSelectedItemIds((current) => { if (!event.target.checked) return current.filter((id) => id !== item.id); if (current.length >= 500) { setError('Bulk editing supports a maximum of 500 selected items.'); return current; } return [...new Set([...current, item.id])]; })} aria-label={t('Select {name}', { name: item.item_code })} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                        <button type="button" onClick={() => void openEditForm(item)} title={t('Edit {name}', { name: item.item_code })} aria-label={t('Edit {name}', { name: item.item_code })} className="rounded-md p-1.5 text-gray-500 hover:bg-blue-50 hover:text-blue-700"><Pencil size={15} /></button>
                       </div>}
                     </td>
                     {visibleColumnDefinitions.map((column) => (
@@ -1479,7 +1509,7 @@ export default function Inventory() {
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-5 py-3">
           <p className="text-xs text-gray-500">
-            Showing {firstRecord.toLocaleString()}–{lastRecord.toLocaleString()} of {total.toLocaleString()} items
+            {t('Showing {first}–{last} of {total} items', { first: formatNumber(firstRecord, language), last: formatNumber(lastRecord, language), total: formatNumber(total, language) })}
           </p>
           <div className="flex items-center gap-2">
             <button
@@ -1487,19 +1517,19 @@ export default function Inventory() {
               onClick={() => setPage((current) => Math.max(1, current - 1))}
               disabled={loading || page <= 1}
               className="rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-              aria-label="Previous page"
+              aria-label={t('Previous page')}
             >
               <ChevronLeft size={17} />
             </button>
             <span className="min-w-24 text-center text-sm text-gray-600">
-              Page {totalPages === 0 ? 0 : page} of {totalPages}
+              {t('Page {current} of {total}', { current: totalPages === 0 ? 0 : page, total: totalPages })}
             </span>
             <button
               type="button"
               onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
               disabled={loading || page >= totalPages}
               className="rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-              aria-label="Next page"
+              aria-label={t('Next page')}
             >
               <ChevronRight size={17} />
             </button>
@@ -1512,28 +1542,28 @@ export default function Inventory() {
           <div className="my-auto w-full max-w-2xl rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">{exportType === 'debit' ? 'Export Issue Voucher' : 'Export Inventory PDF'}</h2>
-                <p className="mt-1 text-sm text-gray-500">Exports all {total.toLocaleString()} items matching the current search, filters and sort order.</p>
+                <h2 className="text-lg font-semibold text-gray-900">{exportType === 'debit' ? t('Export issue voucher (PDF)') : t('Export inventory (PDF)')}</h2>
+                <p className="mt-1 text-sm text-gray-500">{t('Exports all {total} items matching the current search, filters and sort order.', { total: formatNumber(total, language) })}</p>
               </div>
-              <button type="button" onClick={() => { if (!exportLoading) setExportType(null); }} disabled={exportLoading} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 disabled:opacity-50" aria-label="Close"><X size={18}/></button>
+              <button type="button" onClick={() => { if (!exportLoading) setExportType(null); }} disabled={exportLoading} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 disabled:opacity-50" aria-label={t('Close')}><X size={18}/></button>
             </div>
             <div className="space-y-4 p-6">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-gray-800">Columns to include</p>
+                <p className="text-sm font-semibold text-gray-800">{t('Columns to include')}</p>
                 <div className="flex gap-3">
-                  <button type="button" onClick={() => setExportColumns(COLUMNS.map(column => column.key))} className="text-xs font-medium text-blue-600 hover:text-blue-800">Select all</button>
-                  <button type="button" onClick={() => setExportColumns([])} className="text-xs font-medium text-blue-600 hover:text-blue-800">Clear</button>
+                  <button type="button" onClick={() => setExportColumns(COLUMNS.map(column => column.key))} className="text-xs font-medium text-blue-600 hover:text-blue-800">{t('Select all')}</button>
+                  <button type="button" onClick={() => setExportColumns([])} className="text-xs font-medium text-blue-600 hover:text-blue-800">{t('Clear')}</button>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {COLUMNS.map(column => <label key={column.key} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50"><input type="checkbox" checked={exportColumns.includes(column.key)} onChange={event => setExportColumns(current => event.target.checked ? [...current, column.key] : current.filter(key => key !== column.key))} className="rounded border-gray-300 text-blue-600"/>{column.label}</label>)}
+                {COLUMNS.map(column => <label key={column.key} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50"><input type="checkbox" checked={exportColumns.includes(column.key)} onChange={event => setExportColumns(current => event.target.checked ? [...current, column.key] : current.filter(key => key !== column.key))} className="rounded border-gray-300 text-blue-600"/>{t(column.label)}</label>)}
               </div>
-              {exportType === 'debit' && <div><label className="mb-1 block text-sm font-medium text-gray-700">Employee for signature *</label><select value={exportEmployeeId} onChange={event => setExportEmployeeId(event.target.value)} className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"><option value="">Select employee</option>{exportEmployees.map(employee => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select><p className="mt-1 text-xs text-gray-500">The selected employee will appear in the signature area on every page, even if they are not assigned to every listed item.</p></div>}
-              {exportError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{exportError}</p>}
+              {exportType === 'debit' && <div><label className="mb-1 block text-sm font-medium text-gray-700">{t('Employee for signature *')}</label><select value={exportEmployeeId} onChange={event => setExportEmployeeId(event.target.value)} className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"><option value="">{t('Select employee')}</option>{exportEmployees.map(employee => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select><p className="mt-1 text-xs text-gray-500">{t('The selected employee will appear in the signature area on every page, even if they are not assigned to every listed item.')}</p></div>}
+              {exportError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{translateMessage(exportError)}</p>}
             </div>
             <div className="flex justify-end gap-2 border-t border-gray-200 px-6 py-4">
-              <button type="button" onClick={() => setExportType(null)} disabled={exportLoading} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 disabled:opacity-50">Cancel</button>
-              <button type="button" onClick={() => void generateInventoryPdf()} disabled={exportLoading || (exportType === 'debit' && exportEmployees.length === 0)} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"><FileDown size={16}/>{exportLoading ? 'Preparing…' : exportType === 'debit' ? 'Generate Export Issue Voucher' : 'Generate PDF'}</button>
+              <button type="button" onClick={() => setExportType(null)} disabled={exportLoading} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 disabled:opacity-50">{t('Cancel')}</button>
+              <button type="button" onClick={() => void generateInventoryPdf()} disabled={exportLoading || (exportType === 'debit' && exportEmployees.length === 0)} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"><FileDown size={16}/>{exportLoading ? t('Preparing…') : exportType === 'debit' ? t('Generate issue voucher') : t('Generate PDF')}</button>
             </div>
           </div>
         </div>
@@ -1543,50 +1573,50 @@ export default function Inventory() {
         <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-8">
           <form onSubmit={submitBulkUpdate} className="my-auto w-full max-w-4xl rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-              <div><h2 className="text-lg font-semibold text-gray-900">Bulk Edit Inventory</h2><p className="text-sm text-gray-500">Apply the selected changes to {selectedItemIds.length} inventory items. Unselected fields will remain untouched.</p></div>
-              <button type="button" onClick={() => setBulkOpen(false)} disabled={bulkSaving} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100" aria-label="Close"><X size={18}/></button>
+              <div><h2 className="text-lg font-semibold text-gray-900">{t('Bulk Edit Inventory')}</h2><p className="text-sm text-gray-500">{t('Apply the selected changes to {count} inventory items. Unselected fields will remain untouched.', { count: selectedItemIds.length })}</p></div>
+              <button type="button" onClick={() => setBulkOpen(false)} disabled={bulkSaving} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100" aria-label={t('Close')}><X size={18}/></button>
             </div>
-            {bulkLoading ? <div className="p-8 text-center text-sm text-gray-500">Preparing preview…</div> : <div className="space-y-5 p-6">
+            {bulkLoading ? <div className="p-8 text-center text-sm text-gray-500">{t('Preparing preview…')}</div> : <div className="space-y-5 p-6">
               <div className="rounded-lg border border-gray-200 p-3">
-                <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-semibold text-gray-800">Selected items</h3><span className="text-xs text-gray-500">{bulkPreviewItems.length} items</span></div>
+                <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-semibold text-gray-800">{t('Selected items')}</h3><span className="text-xs text-gray-500">{t('{count} items', { count: bulkPreviewItems.length })}</span></div>
                 <div className="max-h-36 overflow-y-auto divide-y divide-gray-100">
-                  {bulkPreviewItems.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs"><span className="font-medium text-blue-700">{item.item_code}</span><span className="text-gray-600">{displayEmployees(item.employees)} · {item.location?.name ?? '—'}</span></div>)}
+                  {bulkPreviewItems.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs"><span className="font-medium text-blue-700">{item.item_code}</span><span className="text-gray-600">{item.employees?.length > 1 ? t('SHARED') : displayEmployees(item.employees)} · {item.location?.name ?? '—'}</span></div>)}
                 </div>
               </div>
 
               <section className="rounded-lg border border-gray-200 p-4 space-y-3">
-                <label className="flex items-center gap-2 text-sm font-semibold text-gray-800"><input type="checkbox" checked={bulkApplyEmployees} onChange={(e) => { setBulkApplyEmployees(e.target.checked); setBulkClearEmployees(false); }} className="rounded border-gray-300 text-blue-600"/> Employee assignments</label>
+                <label className="flex items-center gap-2 text-sm font-semibold text-gray-800"><input type="checkbox" checked={bulkApplyEmployees} onChange={(e) => { setBulkApplyEmployees(e.target.checked); setBulkClearEmployees(false); }} className="rounded border-gray-300 text-blue-600"/> {t('Employee assignments')}</label>
                 {bulkApplyEmployees && <div className="space-y-3 pl-6">
-                  <p className="text-xs text-gray-500">The selected employee assignments will replace the existing assignments on every selected item.</p>
-                  <div className="flex items-center justify-between"><label className="text-sm font-medium text-gray-700">Employees to assign</label><span className="text-xs text-gray-500">{bulkEmployeeIds.length + bulkNewEmployeeNames.length} selected</span></div>
+                  <p className="text-xs text-gray-500">{t('The selected employee assignments will replace the existing assignments on every selected item.')}</p>
+                  <div className="flex items-center justify-between"><label className="text-sm font-medium text-gray-700">{t('Employees to assign')}</label><span className="text-xs text-gray-500">{t('{count} selected', { count: bulkEmployeeIds.length + bulkNewEmployeeNames.length })}</span></div>
                   <div className="max-h-40 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-2">
-                    {bulkEmployeeIds.length === 0 && bulkNewEmployeeNames.length === 0 ? <p className="p-2 text-sm text-gray-500">No employees selected yet.</p> : <div className="space-y-1">
-                      {selectedEmployeeOptions.map((employee) => <div key={employee.id} className="flex items-center justify-between rounded-md bg-white px-3 py-2 text-sm"><span>{employee.full_name}</span><button type="button" onClick={() => setBulkEmployeeIds(ids => ids.filter(id => id !== employee.id))} className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600" aria-label={`Remove ${employee.full_name}`}><X size={14}/></button></div>)}
-                      {bulkNewEmployeeNames.map((name) => <div key={normalizeEmployeeSearch(name)} className="flex items-center justify-between rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800"><span>{name} <span className="text-xs">(new)</span></span><button type="button" onClick={() => setBulkNewEmployeeNames(names => names.filter(entry => entry !== name))} className="rounded p-1 text-blue-500 hover:bg-white" aria-label={`Remove ${name}`}><X size={14}/></button></div>)}
+                    {bulkEmployeeIds.length === 0 && bulkNewEmployeeNames.length === 0 ? <p className="p-2 text-sm text-gray-500">{t('No employees selected yet.')}</p> : <div className="space-y-1">
+                      {selectedEmployeeOptions.map((employee) => <div key={employee.id} className="flex items-center justify-between rounded-md bg-white px-3 py-2 text-sm"><span>{employee.full_name}</span><button type="button" onClick={() => setBulkEmployeeIds(ids => ids.filter(id => id !== employee.id))} className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600" aria-label={t('Remove {name}', { name: employee.full_name })}><X size={14}/></button></div>)}
+                      {bulkNewEmployeeNames.map((name) => <div key={normalizeEmployeeSearch(name)} className="flex items-center justify-between rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800"><span>{name} <span className="text-xs">{t('(new)')}</span></span><button type="button" onClick={() => setBulkNewEmployeeNames(names => names.filter(entry => entry !== name))} className="rounded p-1 text-blue-500 hover:bg-white" aria-label={t('Remove {name}', { name })}><X size={14}/></button></div>)}
                     </div>}
                   </div>
-                  <div><label className="mb-1 block text-sm font-medium text-gray-700">Find an existing employee</label><input value={bulkEmployeeSearch} onChange={e=>setBulkEmployeeSearch(e.target.value)} placeholder="Start typing a name…" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/>
-                    {bulkEmployeeSearch.trim() && <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-gray-200 p-1">{bulkEmployeeMatches.length === 0 ? <p className="px-3 py-3 text-sm text-gray-500">No available employees match your search.</p> : bulkEmployeeMatches.map(employee => <button key={employee.id} type="button" onClick={() => setBulkEmployeeIds(ids => [...ids, employee.id])} className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm hover:bg-blue-50"><span>{employee.full_name}</span><Plus size={15} className="text-blue-600"/></button>)}{bulkAvailableEmployees.length > 10 && <p className="px-3 py-2 text-xs text-gray-500">Showing 10 of {bulkAvailableEmployees.length} matches. Refine your search.</p>}</div>}
+                  <div><label className="mb-1 block text-sm font-medium text-gray-700">{t('Find an existing employee')}</label><input value={bulkEmployeeSearch} onChange={e=>setBulkEmployeeSearch(e.target.value)} placeholder={t('Start typing a name…')} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/>
+                    {bulkEmployeeSearch.trim() && <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-gray-200 p-1">{bulkEmployeeMatches.length === 0 ? <p className="px-3 py-3 text-sm text-gray-500">{t('No available employees match your search.')}</p> : bulkEmployeeMatches.map(employee => <button key={employee.id} type="button" onClick={() => setBulkEmployeeIds(ids => [...ids, employee.id])} className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm hover:bg-blue-50"><span>{employee.full_name}</span><Plus size={15} className="text-blue-600"/></button>)}{bulkAvailableEmployees.length > 10 && <p className="px-3 py-2 text-xs text-gray-500">{t('Showing 10 of {count} matches. Refine your search.', { count: bulkAvailableEmployees.length })}</p>}</div>}
                   </div>
-                  <div className="rounded-lg border border-gray-200 p-3"><label className="mb-2 block text-sm font-medium text-gray-700">Create a new employee and assign all selected items</label><div className="flex items-center gap-2"><input type="text" maxLength={150} value={bulkNewEmployeeInput} onChange={e=>setBulkNewEmployeeInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addBulkEmployee();}}} placeholder="Employee name" className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"/><button type="button" onClick={addBulkEmployee} disabled={!bulkNewEmployeeInput.trim()} aria-label="Add new employee" title="Add employee" className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-40"><Plus size={19}/></button></div>{bulkEmployeePickerError && <p role="alert" className="mt-2 text-sm text-red-600">{bulkEmployeePickerError}</p>}</div>
-                  <label className="flex items-center gap-2 text-sm text-red-700"><input type="checkbox" checked={bulkClearEmployees} onChange={(e) => { setBulkClearEmployees(e.target.checked); if (e.target.checked) { setBulkEmployeeIds([]); setBulkNewEmployeeNames([]); } }} className="rounded border-gray-300"/> Clear all employee assignments on selected items</label>
+                  <div className="rounded-lg border border-gray-200 p-3"><label className="mb-2 block text-sm font-medium text-gray-700">{t('Create a new employee and assign all selected items')}</label><div className="flex items-center gap-2"><input type="text" maxLength={150} value={bulkNewEmployeeInput} onChange={e=>setBulkNewEmployeeInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addBulkEmployee();}}} placeholder={t('Employee name')} className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"/><button type="button" onClick={addBulkEmployee} disabled={!bulkNewEmployeeInput.trim()} aria-label={t('Add new employee')} title={t('Add employee')} className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-40"><Plus size={19}/></button></div>{bulkEmployeePickerError && <p role="alert" className="mt-2 text-sm text-red-600">{translateMessage(bulkEmployeePickerError)}</p>}</div>
+                  <label className="flex items-center gap-2 text-sm text-red-700"><input type="checkbox" checked={bulkClearEmployees} onChange={(e) => { setBulkClearEmployees(e.target.checked); if (e.target.checked) { setBulkEmployeeIds([]); setBulkNewEmployeeNames([]); } }} className="rounded border-gray-300"/> {t('Clear all employee assignments on selected items')}</label>
                 </div>}
               </section>
 
               <section className="rounded-lg border border-gray-200 p-4 space-y-3">
-                <label className="flex items-center gap-2 text-sm font-semibold text-gray-800"><input type="checkbox" checked={bulkApplyLocation} onChange={(e) => setBulkApplyLocation(e.target.checked)} className="rounded border-gray-300 text-blue-600"/> Location</label>
-                {bulkApplyLocation && <div className="pl-6"><label className="mb-1 block text-sm font-medium text-gray-700">Replace location with</label><select value={bulkLocationId} onChange={e=>setBulkLocationId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"><option value="">Select Location</option>{createLocations.map(location=><option key={location.id} value={location.id}>{location.name}</option>)}</select></div>}
+                <label className="flex items-center gap-2 text-sm font-semibold text-gray-800"><input type="checkbox" checked={bulkApplyLocation} onChange={(e) => setBulkApplyLocation(e.target.checked)} className="rounded border-gray-300 text-blue-600"/> {t('Location')}</label>
+                {bulkApplyLocation && <div className="pl-6"><label className="mb-1 block text-sm font-medium text-gray-700">{t('Replace location with')}</label><select value={bulkLocationId} onChange={e=>setBulkLocationId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"><option value="">{t('Select Location')}</option>{createLocations.map(location=><option key={location.id} value={location.id}>{location.name}</option>)}</select></div>}
               </section>
 
               <section className="rounded-lg border border-gray-200 p-4 space-y-3">
-                <label className="flex items-center gap-2 text-sm font-semibold text-gray-800"><input type="checkbox" checked={bulkApplyNotes} onChange={(e) => setBulkApplyNotes(e.target.checked)} className="rounded border-gray-300 text-blue-600"/> Notes</label>
-                {bulkApplyNotes && <div className="space-y-2 pl-6"><label className="block text-sm font-medium text-gray-700">Replace notes with</label><textarea rows={3} value={bulkNotes} disabled={bulkClearNotes} onChange={e=>setBulkNotes(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"/><label className="flex items-center gap-2 text-sm text-red-700"><input type="checkbox" checked={bulkClearNotes} onChange={e=>setBulkClearNotes(e.target.checked)} className="rounded border-gray-300"/> Clear notes on selected items</label></div>}
+                <label className="flex items-center gap-2 text-sm font-semibold text-gray-800"><input type="checkbox" checked={bulkApplyNotes} onChange={(e) => setBulkApplyNotes(e.target.checked)} className="rounded border-gray-300 text-blue-600"/> {t('Notes')}</label>
+                {bulkApplyNotes && <div className="space-y-2 pl-6"><label className="block text-sm font-medium text-gray-700">{t('Replace notes with')}</label><textarea rows={3} value={bulkNotes} disabled={bulkClearNotes} onChange={e=>setBulkNotes(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"/><label className="flex items-center gap-2 text-sm text-red-700"><input type="checkbox" checked={bulkClearNotes} onChange={e=>setBulkClearNotes(e.target.checked)} className="rounded border-gray-300"/> {t('Clear notes on selected items')}</label></div>}
               </section>
 
-              <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900"><strong>Preview</strong><p className="mt-1">{selectedItemIds.length} items will be processed. {bulkApplyEmployees ? `Employee assignments: ${bulkClearEmployees ? 'clear all' : [...selectedEmployeeOptions.map(x=>x.full_name), ...bulkNewEmployeeNames].join(', ') || 'none selected'}. ` : ''}{bulkApplyLocation ? `Location: ${createLocations.find(x=>String(x.id)===bulkLocationId)?.name ?? 'not selected'}. ` : ''}{bulkApplyNotes ? `Notes: ${bulkClearNotes ? 'clear' : (bulkNotes.trim() || 'empty')}.` : ''}</p></div>
+              <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900"><strong>{t('Preview')}</strong><p className="mt-1">{t('{count} items will be processed.', { count: selectedItemIds.length })} {bulkApplyEmployees ? `${t('Employee assignments')}: ${bulkClearEmployees ? t('clear all') : [...selectedEmployeeOptions.map(x=>x.full_name), ...bulkNewEmployeeNames].join(', ') || t('none selected')}. ` : ''}{bulkApplyLocation ? `${t('Location')}: ${createLocations.find(x=>String(x.id)===bulkLocationId)?.name ?? t('not selected')}. ` : ''}{bulkApplyNotes ? `${t('Notes')}: ${bulkClearNotes ? t('clear') : (bulkNotes.trim() || t('empty'))}.` : ''}</p></div>
             </div>}
-            {bulkError && <div role="alert" aria-live="polite" className="mx-6 mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{bulkError}</div>}
-            <div className="flex justify-end gap-2 border-t border-gray-200 px-6 py-4"><button type="button" onClick={() => setBulkOpen(false)} disabled={bulkSaving} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700">Cancel</button><button type="submit" disabled={bulkSaving || bulkLoading} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{bulkSaving ? 'Applying…' : 'Apply bulk changes'}</button></div>
+            {bulkError && <div role="alert" aria-live="polite" className="mx-6 mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{translateMessage(bulkError)}</div>}
+            <div className="flex justify-end gap-2 border-t border-gray-200 px-6 py-4"><button type="button" onClick={() => setBulkOpen(false)} disabled={bulkSaving} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700">{t('Cancel')}</button><button type="submit" disabled={bulkSaving || bulkLoading} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{bulkSaving ? t('Applying…') : t('Apply bulk changes')}</button></div>
           </form>
         </div>
       )}
@@ -1595,20 +1625,20 @@ export default function Inventory() {
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-8">
           <form onSubmit={submitCreateItem} className="my-auto w-full max-w-4xl rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-              <div><h2 className="text-lg font-semibold text-gray-900">Add Inventory Item</h2><p className="text-sm text-gray-500">New related records are saved only if the item is created successfully.</p></div>
-              <button type="button" onClick={() => setCreateOpen(false)} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100" aria-label="Close"><X size={18}/></button>
+              <div><h2 className="text-lg font-semibold text-gray-900">{t('Add Inventory Item')}</h2><p className="text-sm text-gray-500">{t('New related records are saved only if the item is created successfully.')}</p></div>
+              <button type="button" onClick={() => setCreateOpen(false)} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100" aria-label={t('Close')}><X size={18}/></button>
             </div>
             <div className="grid grid-cols-1 gap-4 p-6 md:grid-cols-2">
-              <div><label className="mb-1 block text-sm font-medium text-gray-700">Item Type *</label><select value={newItemTypeName ? '__new' : createDraft.item_type_id} onChange={e=>{setNewItemTypeName('');setCreateDraft(d=>({...d,item_type_id:e.target.value==='__new'?'':e.target.value,brand_id:'',model_id:''}));}} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"><option value="">Select Item Type</option>{createItemTypes.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}<option value="__new">+ Create new Item Type</option></select>{(newItemTypeName || !createDraft.item_type_id) && <input value={newItemTypeName} onChange={e=>{setNewItemTypeName(e.target.value);setNewBrandName('');setNewModelName('');setCreateDraft(d=>({...d,brand_id:'',model_id:''}));}} placeholder="New Item Type name" className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/>}</div>
-              <div><label className="mb-1 block text-sm font-medium text-gray-700">Brand *</label><select disabled={!createDraft.item_type_id && !newItemTypeName.trim()} value={newBrandName ? '__new' : createDraft.brand_id} onChange={e=>{setNewBrandName('');setNewModelName('');setCreateDraft(d=>({...d,brand_id:e.target.value==='__new'?'':e.target.value,model_id:''}));}} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"><option value="">Select Brand</option>{createBrands.filter(x=>x.item_type_id===Number(createDraft.item_type_id)).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}<option value="__new">+ Create new Brand</option></select>{(newBrandName || !createDraft.brand_id) && <input disabled={!createDraft.item_type_id && !newItemTypeName.trim()} value={newBrandName} onChange={e=>{setNewBrandName(e.target.value);setNewModelName('');setCreateDraft(d=>({...d,model_id:''}));}} placeholder="New Brand name" className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"/>}</div>
-              <div><label className="mb-1 block text-sm font-medium text-gray-700">Model *</label><select disabled={!createDraft.brand_id && !newBrandName.trim()} value={newModelName ? '__new' : createDraft.model_id} onChange={e=>{setNewModelName('');setCreateDraft(d=>({...d,model_id:e.target.value==='__new'?'':e.target.value}));}} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"><option value="">Select Model</option>{createModels.filter(x=>x.brand_id===Number(createDraft.brand_id)).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}<option value="__new">+ Create new Model</option></select>{(newModelName || !createDraft.model_id) && <input disabled={!createDraft.brand_id && !newBrandName.trim()} value={newModelName} onChange={e=>setNewModelName(e.target.value)} placeholder="New Model name" className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"/>}</div>
-              <div><label className="mb-1 block text-sm font-medium text-gray-700">Location *</label><select value={isAdministrator && newLocationName ? '__new' : createDraft.location_id} onChange={e=>{setNewLocationName('');setCreateDraft(d=>({...d,location_id:e.target.value==='__new'?'':e.target.value}));}} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"><option value="">Select Location</option>{createLocations.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}{isAdministrator && <option value="__new">+ Create new Location</option>}</select>{isAdministrator && (newLocationName || !createDraft.location_id) && <input value={newLocationName} onChange={e=>setNewLocationName(e.target.value)} placeholder="New Location name" className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/>}</div>
-              {([['serial_number','S/N'],['mac_address','MAC'],['pc_name','PC Name'],['ip_address','IP'],['socket','SOCKET'],['document_number','EOASIS Doc. No.'],['invoice','Invoice'],['purchase_date','Purchase Date'],['warranty_until','Warranty Date'],['store','Store']] as [keyof CreateDraft,string][]).map(([key,label])=><div key={key}><label className="mb-1 block text-sm font-medium text-gray-700">{label}{key==='serial_number'?' (optional)':''}</label><input type={key==='purchase_date'||key==='warranty_until'?'date':'text'} inputMode={key==='document_number'?'numeric':undefined} value={createDraft[key]} maxLength={key === 'mac_address' ? 17 : undefined} placeholder={key === 'mac_address' ? '00:1A:2B:3C:4D:5E' : undefined} autoCapitalize={key === 'mac_address' ? 'characters' : undefined} onChange={e=>setCreateDraft(d=>({...d,[key]:key === 'mac_address' ? formatMacAddress(e.target.value) : e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/></div>)}
-              <div className="md:col-span-2"><label className="mb-1 block text-sm font-medium text-gray-700">Employees</label><div className="max-h-40 overflow-y-auto rounded-lg border border-gray-300 p-2">{createEmployees.length===0?<p className="p-2 text-sm text-gray-500">No employees available.</p>:createEmployees.map(e=><label key={e.id} className="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700"><input type="checkbox" checked={createEmployeeIds.includes(e.id)} onChange={ev=>setCreateEmployeeIds(ids=>ev.target.checked?[...ids,e.id]:ids.filter(id=>id!==e.id))}/>{e.full_name}</label>)}</div><label className="mt-2 block text-sm font-medium text-gray-700">Add new employees (one name per line)</label><textarea rows={3} value={newEmployeeNames} onChange={e=>setNewEmployeeNames(e.target.value)} placeholder={'Employee One\nEmployee Two'} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/></div>
-              <div className="md:col-span-2"><label className="mb-1 block text-sm font-medium text-gray-700">Notes</label><textarea rows={3} value={createDraft.notes} onChange={e=>setCreateDraft(d=>({...d,notes:e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/></div>
+              <div><label className="mb-1 block text-sm font-medium text-gray-700">{t('Item Type *')}</label><select value={newItemTypeName ? '__new' : createDraft.item_type_id} onChange={e=>{setNewItemTypeName('');setCreateDraft(d=>({...d,item_type_id:e.target.value==='__new'?'':e.target.value,brand_id:'',model_id:''}));}} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"><option value="">{t('Select Item Type')}</option>{createItemTypes.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}<option value="__new">{t('+ Create new Item Type')}</option></select>{(newItemTypeName || !createDraft.item_type_id) && <input value={newItemTypeName} onChange={e=>{setNewItemTypeName(e.target.value);setNewBrandName('');setNewModelName('');setCreateDraft(d=>({...d,brand_id:'',model_id:''}));}} placeholder={t('New Item Type name')} className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/>}</div>
+              <div><label className="mb-1 block text-sm font-medium text-gray-700">{t('Brand *')}</label><select disabled={!createDraft.item_type_id && !newItemTypeName.trim()} value={newBrandName ? '__new' : createDraft.brand_id} onChange={e=>{setNewBrandName('');setNewModelName('');setCreateDraft(d=>({...d,brand_id:e.target.value==='__new'?'':e.target.value,model_id:''}));}} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"><option value="">{t('Select Brand')}</option>{createBrands.filter(x=>x.item_type_id===Number(createDraft.item_type_id)).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}<option value="__new">{t('+ Create new Brand')}</option></select>{(newBrandName || !createDraft.brand_id) && <input disabled={!createDraft.item_type_id && !newItemTypeName.trim()} value={newBrandName} onChange={e=>{setNewBrandName(e.target.value);setNewModelName('');setCreateDraft(d=>({...d,model_id:''}));}} placeholder={t('New Brand name')} className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"/>}</div>
+              <div><label className="mb-1 block text-sm font-medium text-gray-700">{t('Model *')}</label><select disabled={!createDraft.brand_id && !newBrandName.trim()} value={newModelName ? '__new' : createDraft.model_id} onChange={e=>{setNewModelName('');setCreateDraft(d=>({...d,model_id:e.target.value==='__new'?'':e.target.value}));}} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"><option value="">{t('Select Model')}</option>{createModels.filter(x=>x.brand_id===Number(createDraft.brand_id)).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}<option value="__new">{t('+ Create new Model')}</option></select>{(newModelName || !createDraft.model_id) && <input disabled={!createDraft.brand_id && !newBrandName.trim()} value={newModelName} onChange={e=>setNewModelName(e.target.value)} placeholder={t('New Model name')} className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"/>}</div>
+              <div><label className="mb-1 block text-sm font-medium text-gray-700">{t('Location *')}</label><select value={isAdministrator && newLocationName ? '__new' : createDraft.location_id} onChange={e=>{setNewLocationName('');setCreateDraft(d=>({...d,location_id:e.target.value==='__new'?'':e.target.value}));}} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"><option value="">{t('Select Location')}</option>{createLocations.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}{isAdministrator && <option value="__new">{t('+ Create new Location')}</option>}</select>{isAdministrator && (newLocationName || !createDraft.location_id) && <input value={newLocationName} onChange={e=>setNewLocationName(e.target.value)} placeholder={t('New Location name')} className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/>}</div>
+              {([['serial_number','S/N'],['mac_address','MAC'],['pc_name','PC Name'],['ip_address','IP'],['socket','SOCKET'],['document_number','EOASIS Doc. No.'],['invoice','Invoice'],['purchase_date','Purchase Date'],['warranty_until','Warranty Date'],['store','Store']] as [keyof CreateDraft,string][]).map(([key,label])=><div key={key}><label className="mb-1 block text-sm font-medium text-gray-700">{key === 'serial_number' || key === 'mac_address' ? label : t(label)}{key==='serial_number' ? ` ${t('(optional)')}` : ''}</label><input type={key==='purchase_date'||key==='warranty_until'?'date':'text'} inputMode={key==='document_number'?'numeric':undefined} value={createDraft[key]} maxLength={key === 'mac_address' ? 17 : undefined} placeholder={key === 'mac_address' ? '00:1A:2B:3C:4D:5E' : undefined} autoCapitalize={key === 'mac_address' ? 'characters' : undefined} onChange={e=>setCreateDraft(d=>({...d,[key]:key === 'mac_address' ? formatMacAddress(e.target.value) : e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/></div>)}
+              <div className="md:col-span-2"><label className="mb-1 block text-sm font-medium text-gray-700">{t('Employees')}</label><div className="max-h-40 overflow-y-auto rounded-lg border border-gray-300 p-2">{createEmployees.length===0?<p className="p-2 text-sm text-gray-500">{t('No employees available.')}</p>:createEmployees.map(e=><label key={e.id} className="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700"><input type="checkbox" checked={createEmployeeIds.includes(e.id)} onChange={ev=>setCreateEmployeeIds(ids=>ev.target.checked?[...ids,e.id]:ids.filter(id=>id!==e.id))}/>{e.full_name}</label>)}</div><label className="mt-2 block text-sm font-medium text-gray-700">{t('Add new employees (one name per line)')}</label><textarea rows={3} value={newEmployeeNames} onChange={e=>setNewEmployeeNames(e.target.value)} placeholder={`${t('Employee One')}\n${t('Employee Two')}`} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/></div>
+              <div className="md:col-span-2"><label className="mb-1 block text-sm font-medium text-gray-700">{t('Notes')}</label><textarea rows={3} value={createDraft.notes} onChange={e=>setCreateDraft(d=>({...d,notes:e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/></div>
             </div>
-            {createError && <div role="alert" aria-live="polite" className="mx-6 mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{createError}</div>}
-            <div className="flex justify-end gap-2 border-t border-gray-200 px-6 py-4"><button type="button" onClick={()=>setCreateOpen(false)} disabled={createSaving} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Cancel</button><button type="submit" disabled={createSaving} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">{createSaving?'Creating...':'Create Item'}</button></div>
+            {createError && <div role="alert" aria-live="polite" className="mx-6 mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{translateMessage(createError)}</div>}
+            <div className="flex justify-end gap-2 border-t border-gray-200 px-6 py-4"><button type="button" onClick={()=>setCreateOpen(false)} disabled={createSaving} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">{t('Cancel')}</button><button type="submit" disabled={createSaving} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">{createSaving?t('Creating...'):t('Create Item')}</button></div>
           </form>
         </div>
       )}
@@ -1618,88 +1648,88 @@ export default function Inventory() {
           <form onSubmit={submitEditItem} className="my-auto w-full max-w-4xl rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">Edit Inventory Item</h2>
-                <p className="text-sm text-gray-500">{editingItem?.item_code ?? 'Loading item...'}</p>
+                <h2 className="text-lg font-semibold text-gray-900">{t('Edit Inventory Item')}</h2>
+                <p className="text-sm text-gray-500">{editingItem?.item_code ?? t('Loading item...')}</p>
               </div>
-              <button type="button" onClick={() => { if (!editSaving) { setEditOpen(false); setEditingItem(null); } }} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 disabled:opacity-50" aria-label="Close" disabled={editSaving}><X size={18}/></button>
+              <button type="button" onClick={() => { if (!editSaving) { setEditOpen(false); setEditingItem(null); } }} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 disabled:opacity-50" aria-label={t('Close')} disabled={editSaving}><X size={18}/></button>
             </div>
             <div className="grid grid-cols-1 gap-4 p-6 md:grid-cols-2">
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Item Type *</label>
+                <label className="mb-1 block text-sm font-medium text-gray-700">{t('Item Type *')}</label>
                 <select value={editNewItemTypeName ? '__new' : editDraft.item_type_id} onChange={e => { setEditNewItemTypeName(''); setEditNewBrandName(''); setEditNewModelName(''); setEditDraft(d => ({...d, item_type_id:e.target.value==='__new'?'':e.target.value, brand_id:'', model_id:''})); }} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
-                  <option value="">Select Item Type</option>
+                  <option value="">{t('Select Item Type')}</option>
                   {createItemTypes.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}
-                  <option value="__new">+ Create new Item Type</option>
+                  <option value="__new">{t('+ Create new Item Type')}</option>
                 </select>
-                {(editNewItemTypeName || !editDraft.item_type_id) && <input value={editNewItemTypeName} onChange={e=>{setEditNewItemTypeName(e.target.value);setEditNewBrandName('');setEditNewModelName('');setEditDraft(d=>({...d,brand_id:'',model_id:''}));}} placeholder="New Item Type name" className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/>}
+                {(editNewItemTypeName || !editDraft.item_type_id) && <input value={editNewItemTypeName} onChange={e=>{setEditNewItemTypeName(e.target.value);setEditNewBrandName('');setEditNewModelName('');setEditDraft(d=>({...d,brand_id:'',model_id:''}));}} placeholder={t('New Item Type name')} className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/>}
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Brand *</label>
+                <label className="mb-1 block text-sm font-medium text-gray-700">{t('Brand *')}</label>
                 <select disabled={!editDraft.item_type_id && !editNewItemTypeName.trim()} value={editNewBrandName ? '__new' : editDraft.brand_id} onChange={e => { setEditNewBrandName(''); setEditNewModelName(''); setEditDraft(d => ({...d, brand_id:e.target.value==='__new'?'':e.target.value, model_id:''})); }} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400">
-                  <option value="">Select Brand</option>
+                  <option value="">{t('Select Brand')}</option>
                   {createBrands.filter(x=>x.item_type_id===Number(editDraft.item_type_id)).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}
-                  <option value="__new">+ Create new Brand</option>
+                  <option value="__new">{t('+ Create new Brand')}</option>
                 </select>
-                {(editNewBrandName || !editDraft.brand_id) && <input disabled={!editDraft.item_type_id && !editNewItemTypeName.trim()} value={editNewBrandName} onChange={e=>{setEditNewBrandName(e.target.value);setEditNewModelName('');setEditDraft(d=>({...d,model_id:''}));}} placeholder="New Brand name" className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"/>}
+                {(editNewBrandName || !editDraft.brand_id) && <input disabled={!editDraft.item_type_id && !editNewItemTypeName.trim()} value={editNewBrandName} onChange={e=>{setEditNewBrandName(e.target.value);setEditNewModelName('');setEditDraft(d=>({...d,model_id:''}));}} placeholder={t('New Brand name')} className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"/>}
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Model *</label>
+                <label className="mb-1 block text-sm font-medium text-gray-700">{t('Model *')}</label>
                 <select disabled={!editDraft.brand_id && !editNewBrandName.trim()} value={editNewModelName ? '__new' : editDraft.model_id} onChange={e => { setEditNewModelName(''); setEditDraft(d => ({...d, model_id:e.target.value==='__new'?'':e.target.value})); }} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400">
-                  <option value="">Select Model</option>
+                  <option value="">{t('Select Model')}</option>
                   {createModels.filter(x=>x.brand_id===Number(editDraft.brand_id)).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}
-                  <option value="__new">+ Create new Model</option>
+                  <option value="__new">{t('+ Create new Model')}</option>
                 </select>
-                {(editNewModelName || !editDraft.model_id) && <input disabled={!editDraft.brand_id && !editNewBrandName.trim()} value={editNewModelName} onChange={e=>setEditNewModelName(e.target.value)} placeholder="New Model name" className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"/>}
+                {(editNewModelName || !editDraft.model_id) && <input disabled={!editDraft.brand_id && !editNewBrandName.trim()} value={editNewModelName} onChange={e=>setEditNewModelName(e.target.value)} placeholder={t('New Model name')} className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"/>}
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Location *</label>
+                <label className="mb-1 block text-sm font-medium text-gray-700">{t('Location *')}</label>
                 <select value={isAdministrator && editNewLocationName ? '__new' : editDraft.location_id} onChange={e => { setEditNewLocationName(''); setEditDraft(d => ({...d, location_id:e.target.value==='__new'?'':e.target.value})); }} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
-                  <option value="">Select Location</option>
+                  <option value="">{t('Select Location')}</option>
                   {createLocations.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}
-                  {isAdministrator && <option value="__new">+ Create new Location</option>}
+                  {isAdministrator && <option value="__new">{t('+ Create new Location')}</option>}
                 </select>
-                {isAdministrator && (editNewLocationName || !editDraft.location_id) && <input value={editNewLocationName} onChange={e=>setEditNewLocationName(e.target.value)} placeholder="New Location name" className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/>}
+                {isAdministrator && (editNewLocationName || !editDraft.location_id) && <input value={editNewLocationName} onChange={e=>setEditNewLocationName(e.target.value)} placeholder={t('New Location name')} className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/>}
               </div>
-              {([['serial_number','S/N'],['mac_address','MAC'],['pc_name','PC Name'],['ip_address','IP'],['socket','SOCKET'],['document_number','EOASIS Doc. No.'],['invoice','Invoice'],['purchase_date','Purchase Date'],['warranty_until','Warranty Date'],['store','Store']] as [keyof CreateDraft,string][]).map(([key,label])=><div key={key}><label className="mb-1 block text-sm font-medium text-gray-700">{label}{key==='serial_number'?' (optional)':''}</label><input type={key==='purchase_date'||key==='warranty_until'?'date':'text'} inputMode={key==='document_number'?'numeric':undefined} value={editDraft[key]} maxLength={key === 'mac_address' ? 17 : undefined} placeholder={key === 'mac_address' ? '00:1A:2B:3C:4D:5E' : undefined} autoCapitalize={key === 'mac_address' ? 'characters' : undefined} onChange={e=>setEditDraft(d=>({...d,[key]:key === 'mac_address' ? formatMacAddress(e.target.value) : e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/></div>)}
+              {([['serial_number','S/N'],['mac_address','MAC'],['pc_name','PC Name'],['ip_address','IP'],['socket','SOCKET'],['document_number','EOASIS Doc. No.'],['invoice','Invoice'],['purchase_date','Purchase Date'],['warranty_until','Warranty Date'],['store','Store']] as [keyof CreateDraft,string][]).map(([key,label])=><div key={key}><label className="mb-1 block text-sm font-medium text-gray-700">{key === 'serial_number' || key === 'mac_address' ? label : t(label)}{key==='serial_number' ? ` ${t('(optional)')}` : ''}</label><input type={key==='purchase_date'||key==='warranty_until'?'date':'text'} inputMode={key==='document_number'?'numeric':undefined} value={editDraft[key]} maxLength={key === 'mac_address' ? 17 : undefined} placeholder={key === 'mac_address' ? '00:1A:2B:3C:4D:5E' : undefined} autoCapitalize={key === 'mac_address' ? 'characters' : undefined} onChange={e=>setEditDraft(d=>({...d,[key]:key === 'mac_address' ? formatMacAddress(e.target.value) : e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/></div>)}
               <div className="md:col-span-2 space-y-3">
                 <div className="flex items-center justify-between gap-3">
-                  <label className="block text-sm font-medium text-gray-700">Assigned Employees</label>
-                  <span className="text-xs text-gray-500">{editEmployeeIds.length + editNewEmployeeNames.length} assigned</span>
+                  <label className="block text-sm font-medium text-gray-700">{t('Assigned Employees')}</label>
+                  <span className="text-xs text-gray-500">{t('{count} assigned', { count: editEmployeeIds.length + editNewEmployeeNames.length })}</span>
                 </div>
                 <div className="max-h-52 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-2">
-                  {editEmployeeIds.length === 0 && editNewEmployeeNames.length === 0 ? <p className="p-2 text-sm text-gray-500">No employees assigned.</p> : (
+                  {editEmployeeIds.length === 0 && editNewEmployeeNames.length === 0 ? <p className="p-2 text-sm text-gray-500">{t('No employees assigned.')}</p> : (
                     <div className="space-y-1">
                       {createEmployees.filter(employee => editEmployeeIds.includes(employee.id)).sort((a,b)=>a.full_name.localeCompare(b.full_name)).map(employee => (
                         <div key={employee.id} className="flex items-center justify-between gap-3 rounded-md bg-white px-3 py-2 text-sm text-gray-700">
                           <span>{employee.full_name}</span>
-                          <button type="button" onClick={() => setEditEmployeeIds(ids => ids.filter(id => id !== employee.id))} className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600" aria-label={`Remove ${employee.full_name}`}><X size={15}/></button>
+                          <button type="button" onClick={() => setEditEmployeeIds(ids => ids.filter(id => id !== employee.id))} className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600" aria-label={t('Remove {name}', { name: employee.full_name })}><X size={15}/></button>
                         </div>
                       ))}
                       {editNewEmployeeNames.map(name => (
                         <div key={normalizeEmployeeSearch(name)} className="flex items-center justify-between gap-3 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
-                          <span>{name} <span className="text-xs text-blue-600">(new)</span></span>
-                          <button type="button" onClick={() => setEditNewEmployeeNames(names => names.filter(entry => entry !== name))} className="rounded p-1 text-blue-500 hover:bg-white" aria-label={`Remove ${name}`}><X size={15}/></button>
+                          <span>{name} <span className="text-xs text-blue-600">{t('(new)')}</span></span>
+                          <button type="button" onClick={() => setEditNewEmployeeNames(names => names.filter(entry => entry !== name))} className="rounded p-1 text-blue-500 hover:bg-white" aria-label={t('Remove {name}', { name })}><X size={15}/></button>
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">Find an existing employee</label>
-                  <input value={editEmployeeSearch} onChange={e=>setEditEmployeeSearch(e.target.value)} placeholder="Start typing a name..." className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t('Find an existing employee')}</label>
+                  <input value={editEmployeeSearch} onChange={e=>setEditEmployeeSearch(e.target.value)} placeholder={t('Start typing a name...')} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
                   {editEmployeeSearch.trim() && (
                     <div className="mt-2 max-h-52 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1">
-                      {editEmployeeMatches.length === 0 ? <p className="px-3 py-3 text-sm text-gray-500">No available employees match your search.</p> : editEmployeeMatches.map(employee => (
+                      {editEmployeeMatches.length === 0 ? <p className="px-3 py-3 text-sm text-gray-500">{t('No available employees match your search.')}</p> : editEmployeeMatches.map(employee => (
                         <button key={employee.id} type="button" onClick={() => setEditEmployeeIds(ids => [...ids, employee.id])} className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm text-gray-700 hover:bg-blue-50">
                           <span>{employee.full_name}</span><Plus size={15} className="text-blue-600" />
                         </button>
                       ))}
-                      {editAvailableEmployees.length > 10 && <p className="px-3 py-2 text-xs text-gray-500">Showing 10 of {editAvailableEmployees.length} matches. Refine your search.</p>}
+                      {editAvailableEmployees.length > 10 && <p className="px-3 py-2 text-xs text-gray-500">{t('Showing 10 of {count} matches. Refine your search.', { count: editAvailableEmployees.length })}</p>}
                     </div>
                   )}
                 </div>
                 <div className="rounded-lg border border-gray-200 p-3">
-                  <label className="mb-2 block text-sm font-medium text-gray-700">Create a new employee and assign the item</label>
+                  <label className="mb-2 block text-sm font-medium text-gray-700">{t('Create a new employee and assign the item')}</label>
                   <div className="flex items-center gap-2">
                     <input
                       type="text"
@@ -1707,30 +1737,30 @@ export default function Inventory() {
                       value={editNewEmployeeInput}
                       onChange={e=>setEditNewEmployeeInput(e.target.value)}
                       onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addEditEmployees();}}}
-                      placeholder="Employee name"
+                      placeholder={t('Employee name')}
                       className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
                     />
                     <button
                       type="button"
                       onClick={addEditEmployees}
                       disabled={!editNewEmployeeInput.trim()}
-                      aria-label="Add new employee to assigned employees"
-                      title="Add and assign employee"
+                      aria-label={t('Add new employee to assigned employees')}
+                      title={t('Add and assign employee')}
                       className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-40"
                     ><Plus size={19}/></button>
                   </div>
-                  {editEmployeePickerError && <p role="alert" className="mt-2 text-sm text-red-600">{editEmployeePickerError}</p>}
+                  {editEmployeePickerError && <p role="alert" className="mt-2 text-sm text-red-600">{translateMessage(editEmployeePickerError)}</p>}
                 </div>
               </div>
               <div className="md:col-span-2">
-                <label className="mb-1 block text-sm font-medium text-gray-700">Notes</label>
+                <label className="mb-1 block text-sm font-medium text-gray-700">{t('Notes')}</label>
                 <textarea rows={3} value={editDraft.notes} onChange={e=>setEditDraft(d=>({...d,notes:e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/>
               </div>
             </div>
-            {editError && <div role="alert" aria-live="polite" className="mx-6 mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{editError}</div>}
+            {editError && <div role="alert" aria-live="polite" className="mx-6 mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{translateMessage(editError)}</div>}
             <div className="flex justify-end gap-2 border-t border-gray-200 px-6 py-4">
-              <button type="button" onClick={()=>{setEditOpen(false);setEditingItem(null);}} disabled={editSaving} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
-              <button type="submit" disabled={editSaving || !editingItem} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">{editSaving?'Saving...':'Save Changes'}</button>
+              <button type="button" onClick={()=>{setEditOpen(false);setEditingItem(null);}} disabled={editSaving} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">{t('Cancel')}</button>
+              <button type="submit" disabled={editSaving || !editingItem} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">{editSaving?t('Saving...'):t('Save Changes')}</button>
             </div>
           </form>
         </div>
