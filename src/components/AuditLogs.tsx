@@ -222,7 +222,11 @@ export default function AuditLogs({ role }: { role: string }) {
     setLoading(false);
   }, [category, page]);
 
-  useEffect(() => { void loadEvents(); }, [loadEvents]);
+  useEffect(() => {
+    // Fetching data here is intentional; loadEvents manages the request lifecycle and loading state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadEvents();
+  }, [loadEvents]);
   useEffect(() => {
     const handle = window.setTimeout(() => setSearch(searchInput.trim().toLocaleLowerCase(language === 'el' ? 'el-CY' : 'en-GB')), 250);
     return () => window.clearTimeout(handle);
