@@ -99,12 +99,13 @@ export async function readEmployeesWorkbook(file: File): Promise<EmployeeImportR
     for (const cell of Array.from(row.getElementsByTagName('c'))) {
       const index = columnIndex(cell.getAttribute('r') ?? '')
       const type = cell.getAttribute('t')
-      let value = ''
-      if (type === 'inlineStr') value = Array.from(cell.getElementsByTagName('t')).map((part) => part.textContent ?? '').join('')
-      else {
-        const raw = cell.getElementsByTagName('v')[0]?.textContent ?? ''
-        value = type === 's' ? (sharedStrings[Number(raw)] ?? '') : raw
-      }
+      const raw = cell.getElementsByTagName('v')[0]?.textContent ?? ''
+      const value =
+        type === 'inlineStr'
+          ? Array.from(cell.getElementsByTagName('t')).map((part) => part.textContent ?? '').join('')
+          : type === 's'
+            ? (sharedStrings[Number(raw)] ?? '')
+            : raw
       values.set(index, value)
     }
     const fullName = (values.get(0) ?? '').trim()

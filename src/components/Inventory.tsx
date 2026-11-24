@@ -635,7 +635,7 @@ export default function Inventory() {
     setTotal(Number(data.total ?? 0));
     setTotalPages(Number(data.total_pages ?? 0));
     setLoading(false);
-  }, [page, pageSize, sortBy, sortOrder, search, filters, hideShared]);
+  }, [page, pageSize, sortBy, sortOrder, search, filters, hideShared, t]);
 
   useEffect(() => {
     // Reload inventory whenever search, filters, sorting or pagination changes.

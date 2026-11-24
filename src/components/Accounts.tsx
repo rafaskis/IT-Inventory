@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useLanguage } from '../i18n/LanguageProvider';
 
@@ -35,7 +35,7 @@ const [resetPassword, setResetPassword] = useState('')
 const [confirmPassword, setConfirmPassword] = useState('')
 const [resetting, setResetting] = useState(false)
 
-  async function loadAccounts() {
+  const loadAccounts = useCallback(async () => {
     setLoading(true)
     setError('')
 
@@ -52,7 +52,7 @@ const [resetting, setResetting] = useState(false)
 
     setAccounts(data.users || [])
     setLoading(false)
-  }
+  }, [t])
 
   async function handleCreate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -180,7 +180,7 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
     // Load the account list once when this screen mounts.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadAccounts()
-  }, [])
+  }, [loadAccounts])
 
   return (
     <div className="space-y-6">
