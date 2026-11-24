@@ -1,6 +1,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useLanguage } from '../i18n/LanguageProvider';
 
 type UserRole = 'administrator' | 'inventory_manager' | 'viewer'
 
@@ -17,6 +18,7 @@ type AccountsProps = {
 }
 
 export default function Accounts({ currentUsername }: AccountsProps) {
+  const { t, language } = useLanguage()
   const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
@@ -43,7 +45,7 @@ const [resetting, setResetting] = useState(false)
       })
 
     if (functionError || data?.error) {
-      setError(data?.error || functionError?.message || 'Unable to load accounts.')
+      setError((data?.error && t(data.error)) || (functionError?.message && t(functionError.message)) || t('Unable to load accounts.'))
       setLoading(false)
       return
     }
@@ -69,7 +71,7 @@ const [resetting, setResetting] = useState(false)
       })
 
     if (functionError || data?.error) {
-      setError(data?.error || functionError?.message || 'Unable to create account.')
+      setError((data?.error && t(data.error)) || (functionError?.message && t(functionError.message)) || t('Unable to create account.'))
       setCreating(false)
       return
     }
@@ -77,7 +79,7 @@ const [resetting, setResetting] = useState(false)
     setUsername('')
     setPassword('')
     setRole('viewer')
-    setSuccess(`Account "${data.user.username}" was created successfully.`)
+    setSuccess(t('Account "{username}" was created successfully.', { username: data.user.username }))
 
     await loadAccounts()
     setCreating(false)
@@ -93,7 +95,7 @@ const [resetting, setResetting] = useState(false)
 
     if (account.username === currentUsername) {
       if (newRole !== 'administrator' || !newActive) {
-        setError('You cannot remove your own Administrator access.')
+        setError(t('You cannot remove your own Administrator access.'))
         return
       }
     }
@@ -101,7 +103,7 @@ const [resetting, setResetting] = useState(false)
     if (
       account.is_active &&
       !newActive &&
-      !window.confirm(`Are you sure you want to deactivate "${account.username}"?`)
+      !window.confirm(t('Are you sure you want to deactivate "{username}"?', { username: account.username }))
     ) {
       return
     }
@@ -119,12 +121,12 @@ const [resetting, setResetting] = useState(false)
       })
 
     if (functionError || data?.error) {
-      setError(data?.error || functionError?.message || 'Unable to update account.')
+      setError((data?.error && t(data.error)) || (functionError?.message && t(functionError.message)) || t('Unable to update account.'))
       setUpdatingId(null)
       return
     }
 
-    setSuccess(`Account "${account.username}" was updated successfully.`)
+    setSuccess(t('Account "{username}" was updated successfully.', { username: account.username }))
     await loadAccounts()
     setUpdatingId(null)
   }
@@ -137,12 +139,12 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
   if (!resetTarget) return
 
   if (resetPassword.length < 8 || resetPassword.length > 32) {
-    setError('Password must contain between 8 and 32 characters.')
+    setError(t('Password must contain between 8 and 32 characters.'))
     return
   }
 
   if (resetPassword !== confirmPassword) {
-    setError('The passwords do not match.')
+    setError(t('The passwords do not match.'))
     return
   }
 
@@ -158,14 +160,14 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
     })
 
   if (functionError || data?.error) {
-    setError(data?.error || functionError?.message || 'Unable to reset password.')
+    setError((data?.error && t(data.error)) || (functionError?.message && t(functionError.message)) || t('Unable to reset password.'))
     setResetting(false)
     return
   }
 
-  setSuccess(`Password for "${resetTarget.username}" was reset successfully.`)
+  setSuccess(t('Password for "{username}" was reset successfully.', { username: resetTarget.username }))
   if (data?.warning) {
-    setError(data.warning)
+    setError(t(data.warning))
   }
 
   setResetTarget(null)
@@ -184,10 +186,10 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-semibold text-slate-800">
-          Account Management
+          {t('Account Management')}
         </h2>
         <p className="mt-1 text-sm text-slate-500">
-          Create and manage application user accounts.
+          {t('Create and manage application user accounts.')}
         </p>
       </div>
 
@@ -204,15 +206,15 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
       )}
 
       <div className="rounded-xl border border-slate-200 bg-white p-5">
-        <h3 className="font-semibold text-slate-800">Create New Account</h3>
+        <h3 className="font-semibold text-slate-800">{t('Create New Account')}</h3>
         <p className="mt-1 text-sm text-slate-500">
-          Only Administrators can create accounts.
+          {t('Only Administrators can create accounts.')}
         </p>
 
         <form onSubmit={handleCreate} className="mt-5 grid gap-4 sm:grid-cols-2">
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-700">
-              Username
+              {t('Username')}
             </label>
             <input
               type="text"
@@ -222,18 +224,18 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
               pattern="[a-zA-Z0-9._-]+"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              placeholder="e.g. j.smith"
+              placeholder={t("e.g. j.smith")}
               autoComplete="off"
               className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             />
             <p className="mt-1 text-xs text-slate-400">
-              3–40 characters: letters, numbers, dots, hyphens and underscores.
+              {t('3–40 characters: letters, numbers, dots, hyphens and underscores.')}
             </p>
           </div>
 
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-700">
-              Temporary Password
+              {t('Temporary Password')}
             </label>
             <input
               type="password"
@@ -242,7 +244,7 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
               maxLength={32}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="8–32 characters"
+              placeholder={t("8–32 characters")}
               autoComplete="new-password"
               className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             />
@@ -250,16 +252,16 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
 
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-700">
-              Account Role
+              {t('Account Role')}
             </label>
             <select
               value={role}
               onChange={(event) => setRole(event.target.value as UserRole)}
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             >
-              <option value="viewer">Viewer</option>
-              <option value="inventory_manager">Inventory Manager</option>
-              <option value="administrator">Administrator</option>
+              <option value="viewer">{t('Viewer')}</option>
+              <option value="inventory_manager">{t('Inventory Manager')}</option>
+              <option value="administrator">{t('Administrator')}</option>
             </select>
           </div>
 
@@ -269,7 +271,7 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
               disabled={creating}
               className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
             >
-              {creating ? 'Creating account...' : 'Create Account'}
+              {creating ? t('Creating account...') : t('Create Account')}
             </button>
           </div>
         </form>
@@ -278,9 +280,9 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
       <div className="rounded-xl border border-slate-200 bg-white">
         <div className="flex items-center justify-between border-b border-slate-200 p-5">
           <div>
-            <h3 className="font-semibold text-slate-800">User Accounts</h3>
+            <h3 className="font-semibold text-slate-800">{t('User Accounts')}</h3>
             <p className="text-sm text-slate-500">
-              {accounts.length} account{accounts.length !== 1 ? 's' : ''}
+              {t('Account count: {count}', { count: accounts.length })}
             </p>
           </div>
 
@@ -289,28 +291,28 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
             disabled={loading}
             className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
-            Refresh
+            {t('Refresh')}
           </button>
         </div>
 
         {loading ? (
           <div className="p-8 text-center text-sm text-slate-500">
-            Loading accounts...
+            {t('Loading accounts...')}
           </div>
         ) : accounts.length === 0 ? (
           <div className="p-8 text-center text-sm text-slate-500">
-            No accounts found.
+            {t('No accounts found.')}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
-                  <th className="px-5 py-3 font-medium">Username</th>
-                  <th className="px-5 py-3 font-medium">Role</th>
-                  <th className="px-5 py-3 font-medium">Status</th>
-                  <th className="px-5 py-3 font-medium">Created</th>
-                  <th className="px-5 py-3 font-medium">Actions</th>
+                  <th className="px-5 py-3 font-medium">{t('Username')}</th>
+                  <th className="px-5 py-3 font-medium">{t('Role')}</th>
+                  <th className="px-5 py-3 font-medium">{t('Status')}</th>
+                  <th className="px-5 py-3 font-medium">{t('Created')}</th>
+                  <th className="px-5 py-3 font-medium">{t('Actions')}</th>
                 </tr>
               </thead>
 
@@ -325,7 +327,7 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
   {account.username}
   {isSelf && (
     <span className="ml-2 text-xs text-blue-600">
-      You
+      {t('You')}
     </span>
   )}
 </td>
@@ -343,9 +345,9 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
                           }
                           className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm capitalize disabled:bg-slate-100 disabled:text-slate-500"
                         >
-                          <option value="administrator">Administrator</option>
-                          <option value="inventory_manager">Inventory Manager</option>
-                          <option value="viewer">Viewer</option>
+                          <option value="administrator">{t('Administrator')}</option>
+                          <option value="inventory_manager">{t('Inventory Manager')}</option>
+                          <option value="viewer">{t('Viewer')}</option>
                         </select>
                       </td>
 
@@ -357,12 +359,12 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
                               : 'bg-slate-100 text-slate-600'
                           }`}
                         >
-                          {account.is_active ? 'Active' : 'Inactive'}
+                          {account.is_active ? t('Active') : t('Inactive')}
                         </span>
                       </td>
 
                       <td className="px-5 py-4 text-slate-500">
-                        {new Date(account.created_at).toLocaleDateString('en-GB', {
+                        {new Date(account.created_at).toLocaleDateString(language === 'el' ? 'el-CY' : 'en-GB', {
                           day: '2-digit',
                           month: '2-digit',
                           year: 'numeric',
@@ -380,10 +382,10 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
         setError('')
         setSuccess('')
       }}
-      title={isSelf ? 'Change your password in Settings' : 'Reset password'}
+      title={isSelf ? t('Change your password in Settings') : t('Reset password')}
       className="whitespace-nowrap rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-40"
     >
-      Reset Password
+      {t('Reset Password')}
     </button>
 
     <button
@@ -402,10 +404,10 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
       }`}
     >
       {updating
-        ? 'Updating...'
+        ? t('Updating...')
         : account.is_active
-          ? 'Deactivate'
-          : 'Activate'}
+          ? t('Deactivate')
+          : t('Activate')}
     </button>
   </div>
 </td>
@@ -421,18 +423,18 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
     <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
       <h3 className="text-lg font-semibold text-slate-900">
-        Reset Password
+        {t('Reset Password')}
       </h3>
 
       <p className="mt-2 text-sm text-slate-500">
-        Set a new password for <strong>{resetTarget.username}</strong>.
-        The user will need to use the new password at their next login.
+        {t('Set a new password for')} <strong>{resetTarget.username}</strong>.
+        {t('The user will need to use the new password at their next login.')}
       </p>
 
       <form onSubmit={handleResetPassword} className="mt-5 space-y-4">
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">
-            New Password
+            {t('New Password')}
           </label>
           <input
             type="password"
@@ -442,14 +444,14 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
             autoComplete="new-password"
             value={resetPassword}
             onChange={(event) => setResetPassword(event.target.value)}
-            placeholder="8–32 characters"
+            placeholder={t("8–32 characters")}
             className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           />
         </div>
 
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">
-            Confirm New Password
+            {t('Confirm New Password')}
           </label>
           <input
             type="password"
@@ -459,7 +461,7 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
             autoComplete="new-password"
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}
-            placeholder="Enter the password again"
+            placeholder={t("Enter the password again")}
             className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           />
         </div>
@@ -475,7 +477,7 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
             }}
             className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
-            Cancel
+            {t('Cancel')}
           </button>
 
           <button
@@ -483,7 +485,7 @@ async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
             disabled={resetting}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            {resetting ? 'Resetting...' : 'Reset Password'}
+            {resetting ? t('Resetting...') : t('Reset Password')}
           </button>
         </div>
       </form>

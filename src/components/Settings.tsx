@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Check, Settings, User, Monitor, KeyRound, Languages } from 'lucide-react'
-import { supabase } from '../lib/supabase'
 import { useLanguage, type Language } from '../i18n/LanguageProvider'
+import { supabase } from '../lib/supabase'
 
 type SettingsPageProps = {
   username: string
@@ -17,7 +17,7 @@ export default function SettingsPage({ username, role, userId, preferredPage }: 
     if (role === 'administrator' || role === 'inventory_manager') {
       pages.push('Employees', 'Locations', 'Catalogues', 'Audit Logs')
     }
-    if (role === 'administrator') pages.push('Accounts')
+    if (role === 'administrator') pages.push('Accounts', 'Batch Import')
     return pages
   }, [role])
 
@@ -36,6 +36,7 @@ export default function SettingsPage({ username, role, userId, preferredPage }: 
   const [passwordSuccess, setPasswordSuccess] = useState('')
   const [passwordWarning, setPasswordWarning] = useState('')
   const [changingPassword, setChangingPassword] = useState(false)
+
 
   async function changeLanguage(nextLanguage: Language) {
     setLanguageError('')
@@ -222,6 +223,7 @@ export default function SettingsPage({ username, role, userId, preferredPage }: 
           {pageError && <p role="alert" className="text-sm text-red-700">{pageError}</p>}
         </div>
       </section>
+
 
       <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
         <Settings size={17} className="mt-0.5 shrink-0 text-slate-500" />

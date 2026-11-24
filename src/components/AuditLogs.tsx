@@ -15,6 +15,7 @@ import {
   Tags,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { formatDateTime, useLanguage } from '../i18n/LanguageProvider';
 import type { LucideIcon } from 'lucide-react';
 
 type AuditCategory = 'inventory_item' | 'employee' | 'location' | 'catalog' | 'security';
@@ -38,20 +39,64 @@ const CATEGORY_INFO: Record<Exclude<AuditCategory, 'security'>, { label: string;
   catalog: { label: 'Catalogues', icon: Tags },
 };
 
-function formatDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Nicosia',
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-    hour12: false,
-  }).format(date);
-}
+const ACTION_LABELS: Record<string, string> = {
+  inventory_item_created: 'Inventory item created',
+  inventory_item_updated: 'Inventory item updated',
+  inventory_item_deleted: 'Inventory item deleted',
+  employee_created: 'Employee created',
+  employee_renamed: 'Employee renamed',
+  employee_deleted: 'Employee deleted',
+  employee_assigned: 'Employee assigned',
+  employee_unassigned: 'Employee unassigned',
+  location_created: 'Location created',
+  location_updated: 'Location updated',
+  location_deleted: 'Location deleted',
+  catalogue_entry_created: 'Catalogue entry created',
+  catalogue_entry_renamed: 'Catalogue entry renamed',
+  catalogue_entry_deleted: 'Catalogue entry deleted',
+  account_updated: 'Account updated',
+};
 
-function prettyAction(action: string) {
-  return action.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
+const CATALOGUE_TYPE_LABELS: Record<string, string> = {
+  item_type: 'Item type',
+  brand: 'Brand',
+  model: 'Model',
+};
+
+const AUDIT_FIELD_LABELS: Record<string, string> = {
+  name: 'Name',
+  full_name: 'Full name',
+  item_type: 'Item Type',
+  brand: 'Brand',
+  model: 'Model',
+  serial_number: 'Serial Number',
+  mac_address: 'MAC Address',
+  pc_name: 'PC Name',
+  ip_address: 'IP Address',
+  socket: 'Socket',
+  location: 'Location',
+  employee: 'Employee',
+  document_number: 'Document number',
+  invoice: 'Invoice',
+  purchase_date: 'Purchase Date',
+  warranty_until: 'Warranty until',
+  store: 'Store',
+  notes: 'Notes',
+  old: 'Previous value',
+  new: 'New value',
+  catalogue_type: 'Catalogue type',
+  item_type_id: 'Item type ID',
+  brand_id: 'Brand ID',
+  employee_id: 'Employee ID',
+  employee_ids: 'Employee IDs',
+  location_id: 'Location ID',
+  item_code: 'Item Code',
+  source: 'Source',
+  source_row: 'Excel row',
+  target_username: 'Target username',
+  role: 'Account role',
+  is_active: 'Account status',
+};
 
 function downloadText(filename: string, content: string) {
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -65,7 +110,72 @@ function downloadText(filename: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
+function catalogueTypeLabel(type: unknown, t: (key: string, values?: Record<string, string | number>) => string) {
+  if (typeof type !== 'string') return t('Catalogue');
+  const label = CATALOGUE_TYPE_LABELS[type];
+  return label ? t(label) : t('Catalogue');
+}
+
+function eventTitle(event: AuditEvent, t: (key: string, values?: Record<string, string | number>) => string) {
+  if (event.entity_type === 'catalog' && event.action.startsWith('catalogue_entry_')) {
+    const rawType = typeof event.details?.catalogue_type === 'string' ? event.details.catalogue_type : '';
+    const typeKey = CATALOGUE_TYPE_LABELS[rawType];
+    const verb = event.action.endsWith('_created')
+      ? 'created'
+      : event.action.endsWith('_renamed')
+        ? 'renamed'
+        : event.action.endsWith('_deleted')
+          ? 'deleted'
+          : '';
+    if (verb && typeKey) return t(`${typeKey} entry ${verb}`);
+  }
+
+  const label = ACTION_LABELS[event.action];
+  if (label) return t(label);
+  return event.action.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function entityLabel(event: AuditEvent, t: (key: string, values?: Record<string, string | number>) => string) {
+  if (event.entity_type === 'catalog') return catalogueTypeLabel(event.details?.catalogue_type, t);
+  const labels: Record<string, string> = {
+    inventory_item: 'Inventory item',
+    employee: 'Employee',
+    location: 'Location',
+    account: 'Account',
+    profile: 'Profile',
+    security: 'Security event',
+    auth: 'Authentication event',
+    user: 'User',
+  };
+  return t(labels[event.entity_type] ?? 'Audit record');
+}
+
+function localizeAuditJson(
+  value: unknown,
+  t: (key: string, values?: Record<string, string | number>) => string,
+  parentKey = '',
+): unknown {
+  if (Array.isArray(value)) return value.map((item) => localizeAuditJson(item, t, parentKey));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, nested]) => {
+      const label = AUDIT_FIELD_LABELS[key];
+      return [label ? t(label) : key, localizeAuditJson(nested, t, key)];
+    }));
+  }
+  if (typeof value === 'string') {
+    if (parentKey === 'catalogue_type') return catalogueTypeLabel(value, t);
+    if (parentKey === 'source' && value === 'batch_import') return t('Batch import');
+    if (parentKey === 'role') {
+      const roles: Record<string, string> = { administrator: 'Administrator', inventory_manager: 'Inventory manager', viewer: 'Viewer' };
+      return roles[value] ? t(roles[value]) : value;
+    }
+  }
+  if (typeof value === 'boolean' && parentKey === 'is_active') return value ? t('Active') : t('Inactive');
+  return value;
+}
+
 export default function AuditLogs({ role }: { role: string }) {
+  const { t, language } = useLanguage();
   const [category, setCategory] = useState<AuditCategory>('inventory_item');
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,12 +201,7 @@ export default function AuditLogs({ role }: { role: string }) {
     setLoading(true);
     setError('');
     const { data, error: requestError } = await supabase.functions.invoke('manage-audit', {
-      body: {
-        action: 'list',
-        category,
-        page,
-        page_size: PAGE_SIZE,
-      },
+      body: { action: 'list', category, page, page_size: PAGE_SIZE },
     });
     if (requestError || !Array.isArray(data?.events)) {
       let message = data?.error || requestError?.message || 'Failed to load audit history.';
@@ -117,15 +222,11 @@ export default function AuditLogs({ role }: { role: string }) {
     setLoading(false);
   }, [category, page]);
 
+  useEffect(() => { void loadEvents(); }, [loadEvents]);
   useEffect(() => {
-    // Fetch audit events whenever the selected category or page changes.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadEvents();
-  }, [loadEvents]);
-  useEffect(() => {
-    const handle = window.setTimeout(() => setSearch(searchInput.trim().toLowerCase()), 250);
+    const handle = window.setTimeout(() => setSearch(searchInput.trim().toLocaleLowerCase(language === 'el' ? 'el-CY' : 'en-GB')), 250);
     return () => window.clearTimeout(handle);
-  }, [searchInput]);
+  }, [searchInput, language]);
   useEffect(() => {
     // Reset pagination and the expanded row when the category changes.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -138,13 +239,13 @@ export default function AuditLogs({ role }: { role: string }) {
     return events.filter((event) => [
       event.entity_id, event.action, event.actor_username,
       JSON.stringify(event.details ?? {}), JSON.stringify(event.changes ?? {}),
-    ].join(' ').toLowerCase().includes(search));
-  }, [events, search]);
+    ].join(' ').toLocaleLowerCase(language === 'el' ? 'el-CY' : 'en-GB').includes(search));
+  }, [events, search, language]);
 
   const exportItemHistory = async () => {
     const code = itemCode.trim().toUpperCase();
     if (!code) {
-      setError('Enter an Item Code to export its history.');
+      setError(t('Enter an Item Code to export its history.'));
       return;
     }
     setExporting(true);
@@ -153,23 +254,23 @@ export default function AuditLogs({ role }: { role: string }) {
       body: { action: 'item_history', item_code: code },
     });
     if (requestError || !Array.isArray(data?.events)) {
-      setError(data?.error || requestError?.message || 'Unable to export item history.');
+      setError(data?.error || requestError?.message || t('Unable to export item history.'));
       setExporting(false);
       return;
     }
     const lines = [
-      `Inventory Item Audit History: ${code}`,
-      `Exported: ${formatDate(new Date().toISOString())}`,
-      `Events: ${data.events.length}`,
+      `${t('Inventory item audit history')}: ${code}`,
+      `${t('Exported')}: ${formatDateTime(new Date(), language)}`,
+      `${t('Events')}: ${data.events.length}`,
       '',
     ];
     for (const event of data.events as AuditEvent[]) {
       lines.push(
-        `[${formatDate(event.created_at)}] ${prettyAction(event.action)}`,
-        `Actor: ${event.actor_username || '—'}`,
-        `Item: ${code}`,
-        `Changes: ${JSON.stringify(event.changes ?? {}, null, 2)}`,
-        `Details: ${JSON.stringify(event.details ?? {}, null, 2)}`,
+        `[${formatDateTime(event.created_at, language)}] ${eventTitle(event, t)}`,
+        `${t('Actor')}: ${event.actor_username || t('Unknown user')}`,
+        `${t('Item Code')}: ${code}`,
+        `${t('Changes')}: ${JSON.stringify(localizeAuditJson(event.changes ?? {}, t), null, 2)}`,
+        `${t('Additional details')}: ${JSON.stringify(localizeAuditJson(event.details ?? {}, t), null, 2)}`,
         '------------------------------------------------------------',
       );
     }
@@ -183,11 +284,11 @@ export default function AuditLogs({ role }: { role: string }) {
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">Audit History</h2>
-          <p className="mt-1 text-sm text-slate-500">Read-only record of changes made in the inventory system.</p>
+          <h2 className="text-2xl font-bold text-slate-900">{t('Audit History')}</h2>
+          <p className="mt-1 text-sm text-slate-500">{t('Read-only record of changes made in the inventory system.')}</p>
         </div>
         <button onClick={() => void loadEvents()} disabled={loading} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
+          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> {t('Refresh')}
         </button>
       </div>
 
@@ -197,7 +298,7 @@ export default function AuditLogs({ role }: { role: string }) {
           const active = category === entry.key;
           return (
             <button key={entry.key} onClick={() => setCategory(entry.key)} className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${active ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-100'}`}>
-              <Icon size={16} /> {entry.label}
+              <Icon size={16} /> {t(entry.label)}
             </button>
           );
         })}
@@ -206,11 +307,11 @@ export default function AuditLogs({ role }: { role: string }) {
       {category === 'inventory_item' && (
         <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-end">
           <div className="flex-1">
-            <label className="mb-1 block text-sm font-medium text-slate-700">Export one item's complete history</label>
-            <input value={itemCode} onChange={(event) => setItemCode(event.target.value)} placeholder="e.g. MJPO-000001" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+            <label className="mb-1 block text-sm font-medium text-slate-700">{t("Export one item's complete history")}</label>
+            <input value={itemCode} onChange={(event) => setItemCode(event.target.value)} placeholder={t('e.g. MJPO-000001')} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
           </div>
           <button onClick={() => void exportItemHistory()} disabled={exporting} className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:opacity-50">
-            <Download size={16} /> {exporting ? 'Preparing…' : 'Download TXT'}
+            <Download size={16} /> {exporting ? t('Preparing…') : t('Download TXT')}
           </button>
         </div>
       )}
@@ -218,51 +319,55 @@ export default function AuditLogs({ role }: { role: string }) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full sm:max-w-md">
           <Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search this page's audit events…" className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+          <input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={t("Search this page's audit events…")} className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
         </div>
-        <p className="text-sm text-slate-500">{total.toLocaleString()} events · Page {page} of {totalPages}</p>
+        <p className="text-sm text-slate-500">{t('{count} events · Page {page} of {totalPages}', { count: total.toLocaleString(language === 'el' ? 'el-CY' : 'en-GB'), page, totalPages })}</p>
       </div>
 
-      {error && <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"><AlertCircle size={17} className="mt-0.5 shrink-0" />{error}</div>}
+      {error && <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"><AlertCircle size={17} className="mt-0.5 shrink-0" />{t(error)}</div>}
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         {loading ? (
-          <div className="p-12 text-center text-sm text-slate-500">Loading audit history…</div>
+          <div className="p-12 text-center text-sm text-slate-500">{t('Loading audit history…')}</div>
         ) : filteredEvents.length === 0 ? (
           <div className="p-12 text-center">
             <FileText size={30} className="mx-auto text-slate-300" />
-            <p className="mt-3 text-sm font-medium text-slate-700">No audit events found</p>
-            <p className="mt-1 text-xs text-slate-500">Events in this category will appear here when recorded.</p>
+            <p className="mt-3 text-sm font-medium text-slate-700">{t('No audit events found')}</p>
+            <p className="mt-1 text-xs text-slate-500">{t('Events in this category will appear here when recorded.')}</p>
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
             {filteredEvents.map((event) => {
               const open = expanded === event.id;
               const itemCodeValue = event.details?.item_code;
+              const actor = event.actor_username || t('Unknown user');
+              const description = t('{entity} · ID: {id} · By {user}', {
+                entity: entityLabel(event, t), id: event.entity_id, user: actor,
+              });
               return (
                 <div key={event.id}>
                   <button onClick={() => setExpanded(open ? null : event.id)} className="flex w-full flex-col gap-2 px-4 py-4 text-left hover:bg-slate-50 sm:flex-row sm:items-center sm:gap-4">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-slate-800">{prettyAction(event.action)}</span>
+                        <span className="font-semibold text-slate-800">{eventTitle(event, t)}</span>
                         {Boolean(itemCodeValue) && <span className="rounded bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">{String(itemCodeValue)}</span>}
                       </div>
-                      <p className="mt-1 truncate text-xs text-slate-500">{event.entity_type} · ID: {event.entity_id} · By {event.actor_username || 'Unknown user'}</p>
+                      <p className="mt-1 truncate text-xs text-slate-500">{description}</p>
                     </div>
                     <div className="flex items-center justify-between gap-3 sm:justify-end">
-                      <span className="whitespace-nowrap text-xs tabular-nums text-slate-500">{formatDate(event.created_at)}</span>
+                      <span className="whitespace-nowrap text-xs tabular-nums text-slate-500">{formatDateTime(event.created_at, language)}</span>
                       <ChevronDown size={17} className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
                     </div>
                   </button>
                   {open && (
                     <div className="grid gap-4 border-t border-slate-100 bg-slate-50 p-4 md:grid-cols-2">
                       <div>
-                        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Changes</h4>
-                        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700">{JSON.stringify(event.changes ?? {}, null, 2)}</pre>
+                        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{t('Changes')}</h4>
+                        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700">{JSON.stringify(localizeAuditJson(event.changes ?? {}, t), null, 2)}</pre>
                       </div>
                       <div>
-                        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Additional details</h4>
-                        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700">{JSON.stringify(event.details ?? {}, null, 2)}</pre>
+                        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{t('Additional details')}</h4>
+                        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700">{JSON.stringify(localizeAuditJson(event.details ?? {}, t), null, 2)}</pre>
                       </div>
                     </div>
                   )}
@@ -274,10 +379,10 @@ export default function AuditLogs({ role }: { role: string }) {
       </div>
 
       <div className="flex items-center justify-between">
-        <p className="text-xs text-slate-500">Showing {filteredEvents.length} events on this page.</p>
+        <p className="text-xs text-slate-500">{t('Showing {count} events on this page.', { count: filteredEvents.length })}</p>
         <div className="flex gap-2">
-          <button onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1 || loading} className="rounded-lg border border-slate-300 p-2 text-slate-600 hover:bg-slate-50 disabled:opacity-40"><ChevronLeft size={18} /></button>
-          <button onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page >= totalPages || loading} className="rounded-lg border border-slate-300 p-2 text-slate-600 hover:bg-slate-50 disabled:opacity-40"><ChevronRight size={18} /></button>
+          <button aria-label={t('Previous page')} onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1 || loading} className="rounded-lg border border-slate-300 p-2 text-slate-600 hover:bg-slate-50 disabled:opacity-40"><ChevronLeft size={18} /></button>
+          <button aria-label={t('Next page')} onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page >= totalPages || loading} className="rounded-lg border border-slate-300 p-2 text-slate-600 hover:bg-slate-50 disabled:opacity-40"><ChevronRight size={18} /></button>
         </div>
       </div>
     </div>

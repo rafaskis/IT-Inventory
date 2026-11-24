@@ -623,7 +623,7 @@ export default function Inventory() {
           // The response may not contain JSON.
         }
       }
-      setError(message);
+      setError(t(message));
       setItems([]);
       setTotal(0);
       setTotalPages(0);
@@ -969,14 +969,14 @@ export default function Inventory() {
     setSelectedItemIds((current) => {
       if (currentPageSelected) return current.filter((id) => !pageIds.includes(id));
       const next = [...new Set([...current, ...pageIds])];
-      if (next.length > 500) { setError('Bulk editing supports a maximum of 500 selected items.'); return current; }
+      if (next.length > 500) { setError(t('Bulk editing supports a maximum of 500 selected items.')); return current; }
       return next;
     });
   };
 
   const selectAllMatchingItems = async () => {
     if (total > 500) {
-      setError('There are more than 500 matching items. Narrow your filters or select items page by page (maximum 500).');
+      setError(t('There are more than 500 matching items. Narrow your filters or select items page by page (maximum 500).'));
       return;
     }
     setError('');
@@ -1000,7 +1000,7 @@ export default function Inventory() {
         },
       });
       if (requestError || !Array.isArray(data?.items)) {
-        setError(data?.error || requestError?.message || 'Could not select all matching items.');
+        setError((data?.error && t(data.error)) || (requestError?.message && t(requestError.message)) || t('Could not select all matching items.'));
         setLoading(false);
         return;
       }
@@ -1491,7 +1491,7 @@ export default function Inventory() {
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="whitespace-nowrap px-4 py-3">
                       {canManageInventory && <div className="flex items-center gap-2">
-                        <input type="checkbox" checked={selectedItemIds.includes(item.id)} onChange={(event) => setSelectedItemIds((current) => { if (!event.target.checked) return current.filter((id) => id !== item.id); if (current.length >= 500) { setError('Bulk editing supports a maximum of 500 selected items.'); return current; } return [...new Set([...current, item.id])]; })} aria-label={t('Select {name}', { name: item.item_code })} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                        <input type="checkbox" checked={selectedItemIds.includes(item.id)} onChange={(event) => setSelectedItemIds((current) => { if (!event.target.checked) return current.filter((id) => id !== item.id); if (current.length >= 500) { setError(t('Bulk editing supports a maximum of 500 selected items.')); return current; } return [...new Set([...current, item.id])]; })} aria-label={t('Select {name}', { name: item.item_code })} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
                         <button type="button" onClick={() => void openEditForm(item)} title={t('Edit {name}', { name: item.item_code })} aria-label={t('Edit {name}', { name: item.item_code })} className="rounded-md p-1.5 text-gray-500 hover:bg-blue-50 hover:text-blue-700"><Pencil size={15} /></button>
                       </div>}
                     </td>

@@ -20,12 +20,12 @@ export default function Login() {
     const normalizedUsername = username.trim().toLowerCase()
 
     if (!normalizedUsername || !password) {
-      setError('Please enter your username and password.')
+      setError(t('Please enter your username and password.'))
       return
     }
 
     if (!/^[a-z0-9._-]+$/.test(normalizedUsername)) {
-      setError('Invalid username or password.')
+      setError(t('Invalid username or password.'))
       return
     }
 
@@ -42,7 +42,7 @@ export default function Login() {
         })
 
       if (authError || !data.user) {
-        setError('Invalid username or password.')
+        setError(t('Invalid username or password.'))
         return
       }
 
@@ -55,13 +55,13 @@ export default function Login() {
 
       if (profileError || !profile || !profile.is_active) {
         await supabase.auth.signOut()
-        setError('Your account is inactive or unavailable.')
+        setError(t('Your account is inactive or unavailable.'))
         return
       }
 
       // The parent application will detect the authenticated session.
     } catch {
-      setError('Unable to sign in. Please try again.')
+      setError(t('Unable to sign in. Please try again.'))
     } finally {
       setLoading(false)
     }
@@ -74,7 +74,7 @@ export default function Login() {
           <div className="mx-auto flex h-20 w-20 items-center justify-center">
             <img
               src={cyprusLogo}
-              alt="Republic of Cyprus emblem"
+              alt={t("Republic of Cyprus emblem")}
               className="h-full w-full object-contain"
             />
           </div>

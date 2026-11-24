@@ -26,6 +26,8 @@ type RequestBody = {
   action?: string
   id?: string | number
   fullName?: string
+  acknowledged?: boolean
+  rows?: { rowNumber?: number; fullName?: string }[]
 }
 
 function response(body: object, status = 200) {
@@ -176,6 +178,71 @@ Deno.serve(async (req) => {
     body = await req.json()
   } catch {
     return response({ error: 'Invalid request body.' }, 400)
+  }
+
+  // BATCH IMPORT PREVIEW — ADMINISTRATORS ONLY
+  if (body.action === 'preview_batch') {
+    if (actor.role !== 'administrator') {
+      return response({ error: 'Only administrators can import employees.' }, 403)
+    }
+
+    const { data: employees, error: listError } = await supabaseAdmin
+      .from('employees')
+      .select('id, full_name')
+      .order('full_name', { ascending: true })
+
+    if (listError) {
+      console.error('Employee batch preview failed:', listError.message)
+      return response({ error: 'Unable to retrieve existing employees for validation.' }, 500)
+    }
+
+    return response({ success: true, employees: employees ?? [] })
+  }
+
+  // ATOMIC BATCH IMPORT — FINAL VALIDATION IS PERFORMED IN THE DATABASE
+  if (body.action === 'batch_import') {
+    if (actor.role !== 'administrator') {
+      return response({ error: 'Only administrators can import employees.' }, 403)
+    }
+    if (body.acknowledged !== true) {
+      return response({ error: 'Explicit import acknowledgement is required.' }, 400)
+    }
+    if (!Array.isArray(body.rows) || body.rows.length < 1 || body.rows.length > 1000) {
+      return response({ error: 'The import must contain between 1 and 1,000 employee rows.' }, 400)
+    }
+    if (body.rows.some((row) =>
+      !row ||
+      !Number.isInteger(row.rowNumber) ||
+      (row.rowNumber ?? 0) < 2 ||
+      typeof row.fullName !== 'string' ||
+      row.fullName.length > 200
+    )) {
+      return response({ error: 'The employee import contains invalid row data.' }, 400)
+    }
+
+    const { data: result, error: importError } = await supabaseAdmin.rpc('employee_batch_import', {
+      p_rows: body.rows,
+      p_actor_id: actor.id,
+      p_actor_username: actor.username,
+    })
+
+    if (importError) {
+      console.error('Employee batch import failed:', importError.message)
+      return response({ error: getDatabaseErrorMessage(importError) }, importError.code === '23505' ? 409 : 400)
+    }
+
+    if (result?.success === false) {
+      return response({
+        error: 'The employee data changed or contains conflicts. Review the affected rows and try again.',
+        conflicts: result.conflicts ?? [],
+      }, 409)
+    }
+
+    return response({
+      success: true,
+      createdCount: result?.createdCount ?? 0,
+      created: result?.created ?? [],
+    })
   }
 
   // LIST EMPLOYEES WITH ASSIGNED INVENTORY COUNTS

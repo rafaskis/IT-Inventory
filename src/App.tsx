@@ -8,7 +8,8 @@ import Employees from './components/Employees';
 import Locations from './components/Locations';
 import Inventory from './components/Inventory';
 import AuditLogs from './components/AuditLogs';
-import SettingsPage from './components/Settings';
+import SettingsPage from './components/Settings'
+import BatchImportPage from './components/BatchImport';
 import GlobalSearch from './components/GlobalSearch';
 import Login from './components/Login'
 import { LanguageProvider, useLanguage, formatNumber, type Language } from './i18n/LanguageProvider'
@@ -22,6 +23,7 @@ import {
   MapPin,
   Tags,
   FileText,
+  FileSpreadsheet,
   Settings,
   Search,
   Plus,
@@ -41,6 +43,7 @@ const navigation = [
   { name: 'Catalogues', icon: Tags },
   { name: 'Audit Logs', icon: FileText },
   { name: 'Accounts', icon: UserCog },
+  { name: 'Batch Import', icon: FileSpreadsheet },
 ]
 
 type DashboardInventoryRow = {
@@ -80,7 +83,7 @@ function Dashboard({
   const pageStorageKey = `it-inventory-active-page:${userId}`
   const allowedPages = navigation
     .filter((item) => {
-      if (item.name === 'Accounts') return role === 'administrator'
+      if (item.name === 'Accounts' || item.name === 'Batch Import') return role === 'administrator'
       if (item.name === 'Audit Logs') return role === 'administrator' || role === 'inventory_manager'
       if (['Catalogues', 'Employees', 'Locations'].includes(item.name)) {
         return role === 'administrator' || role === 'inventory_manager'
@@ -219,7 +222,7 @@ function Dashboard({
           <nav className="space-y-1">
 {navigation
   .filter((item) => {
-    if (item.name === 'Accounts') return role === 'administrator'
+    if (item.name === 'Accounts' || item.name === 'Batch Import') return role === 'administrator'
     if (item.name === 'Audit Logs') return role === 'administrator' || role === 'inventory_manager'
     if (
       item.name === 'Catalogues' ||
@@ -392,6 +395,15 @@ function Dashboard({
       <p className="mt-2 text-sm text-red-600">{t("You do not have permission to access account management.")}</p>
     </div>
   )
+) : activePage === 'Batch Import' ? (
+  role === 'administrator' ? (
+    <BatchImportPage />
+  ) : (
+    <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
+      <h3 className="font-semibold text-red-700">{t("Access denied")}</h3>
+      <p className="mt-2 text-sm text-red-600">{t("You do not have permission to access batch import.")}</p>
+    </div>
+  )
 ) : activePage === 'Catalogues' ? (
   role === 'administrator' || role === 'inventory_manager' ? (
     <Catalogues />
@@ -541,7 +553,7 @@ function Dashboard({
         <GlobalSearch
           onClose={() => setGlobalSearchOpen(false)}
           onNavigate={(page) => {
-            if (page === 'Accounts' && role !== 'administrator') return
+            if ((page === 'Accounts' || page === 'Batch Import') && role !== 'administrator') return
             if (['Catalogues', 'Employees', 'Locations'].includes(page) && !['administrator', 'inventory_manager'].includes(role)) return
             setActivePage(page)
           }}

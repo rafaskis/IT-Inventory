@@ -13,6 +13,8 @@ import {
   Package,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useLanguage } from '../i18n/LanguageProvider';
+import { normalizeSearchText } from '../lib/searchText';
 
 type EmployeeApiRow = Record<string, unknown>;
 
@@ -25,6 +27,7 @@ type Employee = {
 };
 
 export default function Employees() {
+  const { t } = useLanguage()
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -54,7 +57,7 @@ export default function Employees() {
     const responseData = data && typeof data === 'object'
       ? data as { error?: unknown }
       : null;
-    if (typeof responseData?.error === 'string') return responseData.error;
+    if (typeof responseData?.error === 'string') return t(responseData.error);
 
     const errorObject = requestError && typeof requestError === 'object'
       ? requestError as { message?: unknown; context?: unknown }
@@ -66,8 +69,8 @@ export default function Employees() {
         const responseBody: unknown = await context.clone().json();
         if (responseBody && typeof responseBody === 'object') {
           const body = responseBody as { error?: unknown; message?: unknown };
-          if (typeof body.error === 'string') return body.error;
-          if (typeof body.message === 'string') return body.message;
+          if (typeof body.error === 'string') return t(body.error);
+          if (typeof body.message === 'string') return t(body.message);
         }
       } catch {
         // The response may not contain JSON.
@@ -75,7 +78,7 @@ export default function Employees() {
     }
 
     return typeof errorObject?.message === 'string'
-      ? errorObject.message
+      ? t(errorObject.message)
       : fallback;
   };
 
@@ -93,7 +96,7 @@ export default function Employees() {
         await getFunctionErrorMessage(
           requestError,
           data,
-          'Failed to load employees.',
+          t('Failed to load employees.'),
         ),
       );
       setLoading(false);
@@ -125,7 +128,7 @@ export default function Employees() {
     const fullName = newName.trim();
 
     if (!fullName) {
-      setError('Please enter an employee name.');
+      setError(t('Please enter an employee name.'));
       return;
     }
 
@@ -145,7 +148,7 @@ export default function Employees() {
         await getFunctionErrorMessage(
           requestError,
           data,
-          'Unable to create employee.',
+          t('Unable to create employee.'),
         ),
       );
       setSaving(false);
@@ -153,7 +156,7 @@ export default function Employees() {
     }
 
     setNewName('');
-    setSuccess('Employee added successfully.');
+    setSuccess(t('Employee added successfully.'));
 
     await loadEmployees();
     setSaving(false);
@@ -163,7 +166,7 @@ export default function Employees() {
     const fullName = editingName.trim();
 
     if (!fullName) {
-      setError('Please enter an employee name.');
+      setError(t('Please enter an employee name.'));
       return;
     }
 
@@ -184,7 +187,7 @@ export default function Employees() {
         await getFunctionErrorMessage(
           requestError,
           data,
-          'Unable to rename employee.',
+          t('Unable to rename employee.'),
         ),
       );
       setSaving(false);
@@ -193,7 +196,7 @@ export default function Employees() {
 
     setEditingId(null);
     setEditingName('');
-    setSuccess('Employee renamed successfully.');
+    setSuccess(t('Employee renamed successfully.'));
 
     await loadEmployees();
     setSaving(false);
@@ -218,7 +221,7 @@ export default function Employees() {
         await getFunctionErrorMessage(
           requestError,
           data,
-          'Unable to delete employee. The employee may still be assigned to equipment.',
+          t('Unable to delete employee. The employee may still be assigned to equipment.'),
         ),
       );
       setSaving(false);
@@ -227,7 +230,7 @@ export default function Employees() {
     }
 
     setDeleteTarget(null);
-    setSuccess('Employee deleted successfully.');
+    setSuccess(t('Employee deleted successfully.'));
 
     await loadEmployees();
     setSaving(false);
@@ -235,7 +238,7 @@ export default function Employees() {
 
   const filteredEmployees = employees
     .filter((employee) =>
-      employee.full_name.toLowerCase().includes(search.trim().toLowerCase()) ||
+      normalizeSearchText(employee.full_name).includes(normalizeSearchText(search)) ||
       employee.id.includes(search.trim()),
     )
     .sort((a, b) => {
@@ -249,9 +252,9 @@ export default function Employees() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Employees</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{t('Employees')}</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Manage employees and their assigned inventory.
+          {t('Manage employees and their assigned inventory.')}
         </p>
       </div>
 
@@ -271,9 +274,9 @@ export default function Employees() {
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 p-5">
           <div>
-            <h2 className="font-semibold text-gray-900">Employee list</h2>
+            <h2 className="font-semibold text-gray-900">{t('Employee list')}</h2>
             <p className="mt-1 text-sm text-gray-500">
-              {employees.length} employees registered
+              {t('{count} employees registered', { count: employees.length })}
             </p>
           </div>
 
@@ -283,7 +286,7 @@ export default function Employees() {
             className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
             <RefreshCw size={15} />
-            Refresh
+            {t('Refresh')}
           </button>
         </div>
 
@@ -295,7 +298,7 @@ export default function Employees() {
             onKeyDown={(event) => {
               if (event.key === 'Enter') void createEmployee();
             }}
-            placeholder="New employee full name"
+            placeholder={t("New employee full name")}
             disabled={saving}
             maxLength={200}
             className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100"
@@ -307,7 +310,7 @@ export default function Employees() {
             className="flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             <Plus size={16} />
-            Add employee
+            {t('Add employee')}
           </button>
         </div>
 
@@ -321,35 +324,35 @@ export default function Employees() {
               type="text"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by name or employee ID..."
+              placeholder={t("Search by name or employee ID...")}
               className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500"
             />
           </div>
           <div className="flex items-center gap-2 sm:ml-auto">
-            <label htmlFor="employee-sort" className="whitespace-nowrap text-sm text-gray-500">Sort by</label>
+            <label htmlFor="employee-sort" className="whitespace-nowrap text-sm text-gray-500">{t('Sort by')}</label>
             <select
               id="employee-sort"
               value={sortBy}
               onChange={(event) => setSortBy(event.target.value as 'name' | 'id')}
               className="min-w-0 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 outline-none focus:border-blue-500"
             >
-              <option value="name">Name (A–Z)</option>
-              <option value="id">Employee ID (ascending)</option>
+              <option value="name">{t('Name (A–Z)')}</option>
+              <option value="id">{t('Employee ID (ascending)')}</option>
             </select>
           </div>
         </div>
 
         {loading ? (
           <div className="p-10 text-center text-sm text-gray-500">
-            Loading employees...
+            {t('Loading employees...')}
           </div>
         ) : filteredEmployees.length === 0 ? (
           <div className="p-10 text-center">
             <Users size={32} className="mx-auto text-gray-300" />
             <p className="mt-3 text-sm text-gray-500">
               {employees.length === 0
-                ? 'No employees have been added yet.'
-                : 'No employees match your search.'}
+                ? t('No employees have been added yet.')
+                : t('No employees match your search.')}
             </p>
           </div>
         ) : (
@@ -387,7 +390,7 @@ export default function Employees() {
                         {employee.full_name}
                       </p>
                       <p className="mt-1 text-xs text-gray-400">
-                        Employee ID: {employee.id}
+                        {t('Employee ID: {id}', { id: employee.id })}
                       </p>
                     </>
                   )}
@@ -399,7 +402,7 @@ export default function Employees() {
                       <button
                         onClick={() => void renameEmployee(employee.id)}
                         disabled={saving || !editingName.trim()}
-                        title="Save"
+                        title={t("Save")}
                         className="rounded-lg p-2 text-green-700 hover:bg-green-50 disabled:opacity-50"
                       >
                         <Check size={17} />
@@ -411,7 +414,7 @@ export default function Employees() {
                           setEditingName('');
                         }}
                         disabled={saving}
-                        title="Cancel"
+                        title={t("Cancel")}
                         className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
                       >
                         <X size={17} />
@@ -421,7 +424,7 @@ export default function Employees() {
                     <>
                       <div
                         className={`flex items-center gap-1 rounded-lg px-3 py-2 text-xs ${employee.inventory_count === 0 ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}
-                        title="Assigned inventory items"
+                        title={t("Assigned inventory items")}
                       >
                         <Package size={14} className={employee.inventory_count === 0 ? 'text-red-600' : ''} />
                         <span className={employee.inventory_count === 0 ? 'font-semibold text-red-700' : ''}>{employee.inventory_count}</span>
@@ -434,7 +437,7 @@ export default function Employees() {
                           clearMessages();
                         }}
                         disabled={saving}
-                        title="Rename employee"
+                        title={t("Rename employee")}
                         className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
                       >
                         <Pencil size={16} />
@@ -446,7 +449,7 @@ export default function Employees() {
                           clearMessages();
                         }}
                         disabled={saving}
-                        title="Delete employee"
+                        title={t("Delete employee")}
                         className="rounded-lg p-2 text-red-500 hover:bg-red-50"
                       >
                         <Trash2 size={16} />
@@ -460,7 +463,7 @@ export default function Employees() {
         )}
 
         <div className="border-t border-gray-200 px-5 py-3 text-xs text-gray-500">
-          Showing {filteredEmployees.length} of {employees.length} employees
+          {t('Showing {shown} of {total} employees', { shown: filteredEmployees.length, total: employees.length })}
         </div>
       </div>
 
@@ -468,24 +471,23 @@ export default function Employees() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
             <h3 className="text-lg font-semibold text-gray-900">
-              Delete employee?
+              {t('Delete employee?')}
             </h3>
 
             <p className="mt-2 text-sm text-gray-600">
-              Are you sure you want to delete{' '}
+              {t('Are you sure you want to delete')} {' '}
               <strong>{deleteTarget.full_name}</strong>?
             </p>
 
             {deleteTarget.inventory_count > 0 && (
               <p className="mt-3 text-sm text-red-600">
-                This employee currently has {deleteTarget.inventory_count}{' '}
-                assigned inventory item(s). The database will prevent deletion
-                until those assignments are removed.
+                {t('This employee currently has {count}', { count: deleteTarget.inventory_count })}{' '}
+                {t('assigned inventory item(s). The database will prevent deletion until those assignments are removed.')}
               </p>
             )}
 
             <p className="mt-2 text-sm text-gray-500">
-              This action cannot be undone.
+              {t('This action cannot be undone.')}
             </p>
 
             <div className="mt-6 flex justify-end gap-3">
@@ -494,7 +496,7 @@ export default function Employees() {
                 disabled={saving}
                 className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
               >
-                Cancel
+                {t('Cancel')}
               </button>
 
               <button
@@ -502,7 +504,7 @@ export default function Employees() {
                 disabled={saving}
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
               >
-                {saving ? 'Deleting...' : 'Delete'}
+                {saving ? t('Deleting...') : t('Delete')}
               </button>
             </div>
           </div>

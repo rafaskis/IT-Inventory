@@ -13,6 +13,8 @@ import {
   Users,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useLanguage } from '../i18n/LanguageProvider';
+import { normalizeSearchText } from '../lib/searchText';
 
 type LocationApiRow = Record<string, unknown>;
 
@@ -27,6 +29,7 @@ type Location = {
 };
 
 export default function Locations() {
+  const { t } = useLanguage()
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -58,7 +61,7 @@ export default function Locations() {
     const responseData = data && typeof data === 'object'
       ? data as { error?: unknown }
       : null;
-    if (typeof responseData?.error === 'string') return responseData.error;
+    if (typeof responseData?.error === 'string') return t(responseData.error);
 
     const errorObject = requestError && typeof requestError === 'object'
       ? requestError as { message?: unknown; context?: unknown }
@@ -70,8 +73,8 @@ export default function Locations() {
         const responseBody: unknown = await context.clone().json();
         if (responseBody && typeof responseBody === 'object') {
           const body = responseBody as { error?: unknown; message?: unknown };
-          if (typeof body.error === 'string') return body.error;
-          if (typeof body.message === 'string') return body.message;
+          if (typeof body.error === 'string') return t(body.error);
+          if (typeof body.message === 'string') return t(body.message);
         }
       } catch {
         // The response may not contain JSON.
@@ -79,7 +82,7 @@ export default function Locations() {
     }
 
     return typeof errorObject?.message === 'string'
-      ? errorObject.message
+      ? t(errorObject.message)
       : fallback;
   };
 
@@ -98,7 +101,7 @@ export default function Locations() {
         await getFunctionErrorMessage(
           requestError,
           data,
-          'Failed to load locations.',
+          t('Failed to load locations.'),
         ),
       );
       setLoading(false);
@@ -150,7 +153,7 @@ export default function Locations() {
     const name = newName.trim();
 
     if (!name) {
-      setError('Please enter a location name.');
+      setError(t('Please enter a location name.'));
       return;
     }
 
@@ -171,7 +174,7 @@ export default function Locations() {
         await getFunctionErrorMessage(
           requestError,
           data,
-          'Unable to create location.',
+          t('Unable to create location.'),
         ),
       );
       setSaving(false);
@@ -180,7 +183,7 @@ export default function Locations() {
 
     setNewName('');
     setNewNotes('');
-    setSuccess('Location added successfully.');
+    setSuccess(t('Location added successfully.'));
 
     await loadLocations();
     setSaving(false);
@@ -190,7 +193,7 @@ export default function Locations() {
     const name = editingName.trim();
 
     if (!name) {
-      setError('Please enter a location name.');
+      setError(t('Please enter a location name.'));
       return;
     }
 
@@ -212,7 +215,7 @@ export default function Locations() {
         await getFunctionErrorMessage(
           requestError,
           data,
-          'Unable to update location.',
+          t('Unable to update location.'),
         ),
       );
       setSaving(false);
@@ -222,7 +225,7 @@ export default function Locations() {
     setEditingId(null);
     setEditingName('');
     setEditingNotes('');
-    setSuccess('Location updated successfully.');
+    setSuccess(t('Location updated successfully.'));
 
     await loadLocations();
     setSaving(false);
@@ -247,7 +250,7 @@ export default function Locations() {
         await getFunctionErrorMessage(
           requestError,
           data,
-          'Unable to delete location. It may still be used by inventory items.',
+          t('Unable to delete location. It may still be used by inventory items.'),
         ),
       );
       setSaving(false);
@@ -256,30 +259,30 @@ export default function Locations() {
     }
 
     setDeleteTarget(null);
-    setSuccess('Location deleted successfully.');
+    setSuccess(t('Location deleted successfully.'));
 
     await loadLocations();
     setSaving(false);
   };
 
   const filteredLocations = locations.filter((location) => {
-    const term = search.trim().toLowerCase();
+    const term = normalizeSearchText(search);
 
     return (
-      location.name.toLowerCase().includes(term) ||
-      (location.notes ?? '').toLowerCase().includes(term)
+      normalizeSearchText(location.name).includes(term) ||
+      normalizeSearchText(location.notes ?? '').includes(term)
     );
   });
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Locations</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{t('Locations')}</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Manage inventory locations and see their assigned equipment and employees.
+          {t('Manage inventory locations and see their assigned equipment and employees.')}
         </p>
         <p className="mt-1 text-xs text-gray-500">
-          Only administrators can create or modify locations.
+          {t('Only administrators can create or modify locations.')}
         </p>
       </div>
 
@@ -299,9 +302,9 @@ export default function Locations() {
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 p-5">
           <div>
-            <h2 className="font-semibold text-gray-900">Location list</h2>
+            <h2 className="font-semibold text-gray-900">{t('Location list')}</h2>
             <p className="mt-1 text-sm text-gray-500">
-              {locations.length} locations registered
+              {t('{count} locations registered', { count: locations.length })}
             </p>
           </div>
 
@@ -311,7 +314,7 @@ export default function Locations() {
             className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
             <RefreshCw size={15} />
-            Refresh
+            {t('Refresh')}
           </button>
         </div>
 
@@ -323,7 +326,7 @@ export default function Locations() {
             onKeyDown={(event) => {
               if (event.key === 'Enter') void createLocation();
             }}
-            placeholder="Location name"
+            placeholder={t("Location name")}
             disabled={saving}
             maxLength={200}
             className="min-w-0 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100"
@@ -332,7 +335,7 @@ export default function Locations() {
           <textarea
             value={newNotes}
             onChange={(event) => setNewNotes(event.target.value)}
-            placeholder="Notes (optional)"
+            placeholder={t("Notes (optional)")}
             disabled={saving}
             rows={2}
             className="min-w-0 resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100"
@@ -345,7 +348,7 @@ export default function Locations() {
               className="flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
               <Plus size={16} />
-              Add location
+              {t('Add location')}
             </button>
           </div>
         </div>}
@@ -360,7 +363,7 @@ export default function Locations() {
               type="text"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by name or notes..."
+              placeholder={t("Search by name or notes...")}
               className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500"
             />
           </div>
@@ -368,15 +371,15 @@ export default function Locations() {
 
         {loading ? (
           <div className="p-10 text-center text-sm text-gray-500">
-            Loading locations...
+            {t('Loading locations...')}
           </div>
         ) : filteredLocations.length === 0 ? (
           <div className="p-10 text-center">
             <MapPin size={32} className="mx-auto text-gray-300" />
             <p className="mt-3 text-sm text-gray-500">
               {locations.length === 0
-                ? 'No locations have been added yet.'
-                : 'No locations match your search.'}
+                ? t('No locations have been added yet.')
+                : t('No locations match your search.')}
             </p>
           </div>
         ) : (
@@ -403,14 +406,14 @@ export default function Locations() {
                         }}
                         maxLength={200}
                         autoFocus
-                        placeholder="Location name"
+                        placeholder={t("Location name")}
                         className="w-full rounded-lg border border-blue-400 px-3 py-2 text-sm outline-none"
                       />
                       <textarea
                         value={editingNotes}
                         onChange={(event) => setEditingNotes(event.target.value)}
                         rows={2}
-                        placeholder="Notes (optional)"
+                        placeholder={t("Notes (optional)")}
                         className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
                       />
                     </div>
@@ -434,7 +437,7 @@ export default function Locations() {
                       <button
                         onClick={() => void updateLocation(location.id)}
                         disabled={saving || !editingName.trim()}
-                        title="Save"
+                        title={t("Save")}
                         className="rounded-lg p-2 text-green-700 hover:bg-green-50 disabled:opacity-50"
                       >
                         <Check size={17} />
@@ -447,7 +450,7 @@ export default function Locations() {
                           setEditingNotes('');
                         }}
                         disabled={saving}
-                        title="Cancel"
+                        title={t("Cancel")}
                         className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
                       >
                         <X size={17} />
@@ -457,7 +460,7 @@ export default function Locations() {
                     <>
                       <div
                         className={`flex items-center gap-1 rounded-lg px-3 py-2 text-xs ${location.inventory_count === 0 ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}
-                        title="Inventory items at this location"
+                        title={t("Inventory items at this location")}
                       >
                         <Package size={14} className={location.inventory_count === 0 ? 'text-red-600' : ''} />
                         <span className={location.inventory_count === 0 ? 'font-semibold text-red-700' : ''}>{location.inventory_count}</span>
@@ -465,7 +468,7 @@ export default function Locations() {
 
                       <div
                         className={`flex items-center gap-1 rounded-lg px-3 py-2 text-xs ${location.employee_count === 0 ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}
-                        title="Distinct employees assigned equipment at this location"
+                        title={t("Distinct employees assigned equipment at this location")}
                       >
                         <Users size={14} className={location.employee_count === 0 ? 'text-red-600' : ''} />
                         <span className={location.employee_count === 0 ? 'font-semibold text-red-700' : ''}>{location.employee_count}</span>
@@ -479,7 +482,7 @@ export default function Locations() {
                           clearMessages();
                         }}
                         disabled={saving}
-                        title="Edit location"
+                        title={t("Edit location")}
                         className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
                       >
                         <Pencil size={16} />
@@ -491,7 +494,7 @@ export default function Locations() {
                           clearMessages();
                         }}
                         disabled={saving}
-                        title="Delete location"
+                        title={t("Delete location")}
                         className="rounded-lg p-2 text-red-500 hover:bg-red-50"
                       >
                         <Trash2 size={16} />
@@ -505,7 +508,7 @@ export default function Locations() {
         )}
 
         <div className="border-t border-gray-200 px-5 py-3 text-xs text-gray-500">
-          Showing {filteredLocations.length} of {locations.length} locations
+          {t('Showing {shown} of {total} locations', { shown: filteredLocations.length, total: locations.length })}
         </div>
       </div>
 
@@ -513,24 +516,23 @@ export default function Locations() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
             <h3 className="text-lg font-semibold text-gray-900">
-              Delete location?
+              {t('Delete location?')}
             </h3>
 
             <p className="mt-2 text-sm text-gray-600">
-              Are you sure you want to delete{' '}
+              {t('Are you sure you want to delete')} {' '}
               <strong>{deleteTarget.name}</strong>?
             </p>
 
             {deleteTarget.inventory_count > 0 && (
               <p className="mt-3 text-sm text-red-600">
-                This location currently has {deleteTarget.inventory_count}{' '}
-                assigned inventory item(s). The database will prevent deletion
-                until those assignments are removed.
+                {t('This location currently has {count}', { count: deleteTarget.inventory_count })}{' '}
+                {t('assigned inventory item(s). The database will prevent deletion until those assignments are removed.')}
               </p>
             )}
 
             <p className="mt-2 text-sm text-gray-500">
-              This action cannot be undone.
+              {t('This action cannot be undone.')}
             </p>
 
             <div className="mt-6 flex justify-end gap-3">
@@ -539,7 +541,7 @@ export default function Locations() {
                 disabled={saving}
                 className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
               >
-                Cancel
+                {t('Cancel')}
               </button>
 
               <button
@@ -547,7 +549,7 @@ export default function Locations() {
                 disabled={saving}
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
               >
-                {saving ? 'Deleting...' : 'Delete'}
+                {saving ? t('Deleting...') : t('Delete')}
               </button>
             </div>
           </div>

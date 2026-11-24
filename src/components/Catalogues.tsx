@@ -13,6 +13,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useLanguage } from '../i18n/LanguageProvider';
 
 type ItemType = {
   id: string;
@@ -41,6 +42,7 @@ type CatalogueEntry = ItemType | Brand | Model;
 type ApiRow = Record<string, unknown>;
 
 export default function Catalogues() {
+  const { t } = useLanguage()
   const [itemTypes, setItemTypes] = useState<ItemType[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [models, setModels] = useState<Model[]>([]);
@@ -86,13 +88,13 @@ export default function Catalogues() {
       });
 
     if (requestError) {
-      setError(requestError.message || 'Failed to load catalogues.');
+      setError(t(requestError.message) || t('Failed to load catalogues.'));
       setLoading(false);
       return;
     }
 
     if (!data?.success) {
-      setError(data?.error || 'Failed to load catalogues.');
+      setError((data?.error && t(data.error)) || t('Failed to load catalogues.'));
       setLoading(false);
       return;
     }
@@ -177,17 +179,17 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
     const name = newName.trim();
 
     if (!name) {
-      setError('Please enter a name.');
+      setError(t('Please enter a name.'));
       return;
     }
 
     if (activeSection === 'brand' && !selectedTypeId) {
-      setError('Select an item type first.');
+      setError(t('Select an item type first.'));
       return;
     }
 
     if (activeSection === 'model' && !selectedBrandId) {
-      setError('Select a brand first.');
+      setError(t('Select a brand first.'));
       return;
     }
 
@@ -206,16 +208,16 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
 
     if (requestError || !data?.success) {
       setError(
-        data?.error ||
-          requestError?.message ||
-          'Unable to create entry.'
+        (data?.error && t(data.error)) ||
+          (requestError?.message && t(requestError.message)) ||
+          t('Unable to create entry.')
       );
       setSaving(false);
       return;
     }
 
     setNewName('');
-    setSuccess('Entry created successfully.');
+    setSuccess(t('Entry created successfully.'));
     await loadCatalogues();
     setSaving(false);
   };
@@ -224,7 +226,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
     const name = editingName.trim();
 
     if (!name) {
-      setError('Please enter a name.');
+      setError(t('Please enter a name.'));
       return;
     }
 
@@ -243,9 +245,9 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
 
     if (requestError || !data?.success) {
       setError(
-        data?.error ||
-          requestError?.message ||
-          'Unable to rename entry.'
+        (data?.error && t(data.error)) ||
+          (requestError?.message && t(requestError.message)) ||
+          t('Unable to rename entry.')
       );
       setSaving(false);
       return;
@@ -253,7 +255,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
 
     setEditingId(null);
     setEditingName('');
-    setSuccess('Entry renamed successfully.');
+    setSuccess(t('Entry renamed successfully.'));
     await loadCatalogues();
     setSaving(false);
   };
@@ -266,7 +268,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
     const responseData = data && typeof data === 'object'
       ? data as { error?: unknown }
       : null;
-    if (typeof responseData?.error === 'string') return responseData.error;
+    if (typeof responseData?.error === 'string') return t(responseData.error);
 
     const errorObject = requestError && typeof requestError === 'object'
       ? requestError as { message?: unknown; context?: unknown }
@@ -278,8 +280,8 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
         const responseBody: unknown = await context.clone().json();
         if (responseBody && typeof responseBody === 'object') {
           const body = responseBody as { error?: unknown; message?: unknown };
-          if (typeof body.error === 'string') return body.error;
-          if (typeof body.message === 'string') return body.message;
+          if (typeof body.error === 'string') return t(body.error);
+          if (typeof body.message === 'string') return t(body.message);
         }
       } catch {
         // The response may not contain JSON.
@@ -287,7 +289,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
     }
 
     return typeof errorObject?.message === 'string'
-      ? errorObject.message
+      ? t(errorObject.message)
       : fallback;
   };
 
@@ -311,7 +313,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
         await getFunctionErrorMessage(
           requestError,
           data,
-          'Unable to delete entry. It may still be in use.',
+          t('Unable to delete entry. It may still be in use.'),
         ),
       );
       setSaving(false);
@@ -320,7 +322,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
     }
 
     setDeleteTarget(null);
-    setSuccess('Entry deleted successfully.');
+    setSuccess(t('Entry deleted successfully.'));
     await loadCatalogues();
     setSaving(false);
   };
@@ -332,31 +334,31 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
   };
 
   const sectionTitle = {
-    item_type: 'Item Types',
-    brand: 'Brands',
-    model: 'Models',
+    item_type: t('Item Types'),
+    brand: t('Brands'),
+    model: t('Models'),
   }[activeSection];
 
   const sectionDescription = {
-    item_type: 'Manage the types of equipment in your inventory.',
-    brand: 'Manage brands belonging to an item type.',
-    model: 'Manage models belonging to a brand.',
+    item_type: t('Manage the types of equipment in your inventory.'),
+    brand: t('Manage brands belonging to an item type.'),
+    model: t('Manage models belonging to a brand.'),
   }[activeSection];
 
   const getEmptyMessage = () => {
     if (activeSection === 'item_type') {
-      return 'No item types have been added yet.';
+      return t('No item types have been added yet.');
     }
 
     if (activeSection === 'brand') {
       return selectedTypeId
-        ? 'No brands exist for this item type.'
-        : 'Add an item type first.';
+        ? t('No brands exist for this item type.')
+        : t('Add an item type first.');
     }
 
     return selectedBrandId
-      ? 'No models exist for this brand.'
-      : 'Select an item type and brand first.';
+      ? t('No models exist for this brand.')
+      : t('Select an item type and brand first.');
   };
 
   const entries = getEntries();
@@ -364,9 +366,9 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Catalogues</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{t('Catalogues')}</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Manage inventory item types, brands and models.
+          {t('Manage inventory item types, brands and models.')}
         </p>
       </div>
 
@@ -384,7 +386,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
           }`}
         >
           <Layers size={16} />
-          Item Types
+          {t('Item Types')}
         </button>
 
         <button
@@ -400,7 +402,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
           }`}
         >
           <Tags size={16} />
-          Brands
+          {t('Brands')}
         </button>
 
         <button
@@ -416,14 +418,14 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
           }`}
         >
           <Package size={16} />
-          Models
+          {t('Models')}
         </button>
       </div>
 
       {(activeSection === 'brand' || activeSection === 'model') && (
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <label className="mb-2 block text-sm font-medium text-gray-700">
-            Item Type
+            {t('Item Type')}
           </label>
 
           <select
@@ -435,7 +437,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
             }}
             className="w-full max-w-md rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
           >
-            <option value="">Select an item type</option>
+            <option value="">{t('Select an item type')}</option>
             {itemTypes.map((type) => (
               <option key={type.id} value={type.id}>
                 {type.name}
@@ -446,7 +448,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
           {activeSection === 'model' && (
             <>
               <label className="mb-2 mt-4 block text-sm font-medium text-gray-700">
-                Brand
+                {t('Brand')}
               </label>
 
               <select
@@ -458,7 +460,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
                 disabled={!selectedTypeId}
                 className="w-full max-w-md rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100"
               >
-                <option value="">Select a brand</option>
+                <option value="">{t('Select a brand')}</option>
                 {filteredBrands.map((brand) => (
                   <option key={brand.id} value={brand.id}>
                     {brand.name}
@@ -486,9 +488,9 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 p-5">
           <div>
-            <h2 className="font-semibold text-gray-900">{sectionTitle}</h2>
+            <h2 className="font-semibold text-gray-900">{t(sectionTitle)}</h2>
             <p className="mt-1 text-sm text-gray-500">
-              {sectionDescription}
+              {t(sectionDescription)}
             </p>
           </div>
 
@@ -498,7 +500,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
             className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
             <RefreshCw size={15} />
-            Refresh
+            {t('Refresh')}
           </button>
         </div>
 
@@ -510,7 +512,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
             onKeyDown={(event) => {
               if (event.key === 'Enter') void createEntry();
             }}
-            placeholder={`New ${activeSection.replace('_', ' ')} name`}
+            placeholder={t(activeSection === 'item_type' ? 'New item type name' : activeSection === 'brand' ? 'New brand name' : 'New model name')}
             disabled={
               saving ||
               (activeSection === 'brand' && !selectedTypeId) ||
@@ -531,17 +533,17 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
             className="flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             <Plus size={16} />
-            Add
+            {t('Add')}
           </button>
         </div>
 
         {loading ? (
           <div className="p-10 text-center text-sm text-gray-500">
-            Loading catalogues...
+            {t('Loading catalogues...')}
           </div>
         ) : entries.length === 0 ? (
           <div className="p-10 text-center text-sm text-gray-500">
-            {getEmptyMessage()}
+            {t(getEmptyMessage())}
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
@@ -582,7 +584,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
                   {editingId !== entry.id && (
                     <div
                       className={`flex items-center gap-1 rounded-lg px-3 py-2 text-xs ${entry.inventory_count === 0 ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}
-                      title="Assigned inventory items"
+                      title={t("Assigned inventory items")}
                     >
                       <Package size={14} className={entry.inventory_count === 0 ? 'text-red-600' : ''} />
                       <span className={entry.inventory_count === 0 ? 'font-semibold text-red-700' : ''}>{entry.inventory_count}</span>
@@ -593,7 +595,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
                       <button
                         onClick={() => void renameEntry(entry.id)}
                         disabled={saving || !editingName.trim()}
-                        title="Save"
+                        title={t("Save")}
                         className="rounded-lg p-2 text-green-700 hover:bg-green-50 disabled:opacity-50"
                       >
                         <Check size={17} />
@@ -605,7 +607,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
                           setEditingName('');
                         }}
                         disabled={saving}
-                        title="Cancel"
+                        title={t("Cancel")}
                         className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
                       >
                         <X size={17} />
@@ -620,7 +622,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
                           clearMessages();
                         }}
                         disabled={saving}
-                        title="Rename"
+                        title={t("Rename")}
                         className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
                       >
                         <Pencil size={16} />
@@ -636,7 +638,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
                           clearMessages();
                         }}
                         disabled={saving}
-                        title="Delete"
+                        title={t("Delete")}
                         className="rounded-lg p-2 text-red-500 hover:bg-red-50"
                       >
                         <Trash2 size={16} />
@@ -650,8 +652,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
         )}
 
         <div className="border-t border-gray-200 px-5 py-3 text-xs text-gray-500">
-          {entries.length} {activeSection.replace('_', ' ')}
-          {entries.length === 1 ? '' : 's'}
+          {t('Entries in section: {count} {section}', { count: entries.length, section: t(sectionTitle) })}
         </div>
       </div>
 
@@ -659,24 +660,22 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
             <h3 className="text-lg font-semibold text-gray-900">
-              Delete entry?
+              {t('Delete entry?')}
             </h3>
 
             <p className="mt-2 text-sm text-gray-600">
-              Are you sure you want to delete{' '}
+              {t('Are you sure you want to delete')} {' '}
               <strong>{deleteTarget.name}</strong>?
             </p>
 
             {deleteTarget.inventory_count > 0 && (
               <p className="mt-3 text-sm text-red-600">
-                This {activeSection === 'item_type' ? 'item type' : activeSection} currently has {deleteTarget.inventory_count}{' '}
-                assigned inventory item(s). The database will prevent deletion
-                until those assignments are removed.
+                {t('This catalogue entry has {count} assigned inventory item(s). The database will prevent deletion until those assignments are removed.', { count: deleteTarget.inventory_count })}
               </p>
             )}
 
             <p className="mt-2 text-sm text-gray-500">
-              This action cannot be undone.
+              {t('This action cannot be undone.')}
             </p>
 
             <div className="mt-6 flex justify-end gap-3">
@@ -685,7 +684,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
                 disabled={saving}
                 className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
               >
-                Cancel
+                {t('Cancel')}
               </button>
 
               <button
@@ -693,7 +692,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
                 disabled={saving}
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
               >
-                {saving ? 'Deleting...' : 'Delete'}
+                {saving ? t('Deleting...') : t('Delete')}
               </button>
             </div>
           </div>

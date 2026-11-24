@@ -151,7 +151,7 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: 'Invalid shared-items visibility setting.' }, 400)
     }
 
-    if (!['list', 'filter_options', 'get', 'create', 'update', 'update_with_related', 'bulk_update', 'get_many'].includes(String(action))) {
+    if (!['list', 'filter_options', 'get', 'create', 'update', 'update_with_related', 'bulk_update', 'get_many', 'preview_batch', 'batch_import'].includes(String(action))) {
       return jsonResponse({ error: 'Invalid action.' }, 400)
     }
 
@@ -161,6 +161,75 @@ Deno.serve(async (req) => {
 
     const actorId = user.id
     const actorUsername = profile.username
+
+    // BATCH IMPORT PREVIEW — ADMINISTRATORS ONLY
+    if (action === 'preview_batch') {
+      if (!isAdministrator) return jsonResponse({ error: 'Only administrators can import inventory.' }, 403)
+      const [types, brands, models, locations] = await Promise.all([
+        serviceClient.from('item_types').select('id, name').order('name'),
+        serviceClient.from('brands').select('id, item_type_id, name').order('name'),
+        serviceClient.from('models').select('id, item_type_id, brand_id, name').order('name'),
+        serviceClient.from('locations').select('id, name').order('name'),
+      ])
+      const failed = [types, brands, models, locations].find((result) => result.error)
+      if (failed?.error) {
+        console.error('Inventory batch preview failed:', failed.error.message)
+        return jsonResponse({ error: 'Unable to retrieve existing inventory and catalogue data for validation.' }, 500)
+      }
+      const identifiers: Record<string, unknown>[] = []
+      for (let offset = 0; ; offset += 1000) {
+        const { data: page, error: pageError } = await serviceClient
+          .from('inventory_items')
+          .select('id, item_type_id, brand_id, model_id, serial_number, mac_address')
+          .order('id', { ascending: true })
+          .range(offset, offset + 999)
+        if (pageError) {
+          console.error('Inventory batch identifier preview failed:', pageError.message)
+          return jsonResponse({ error: 'Unable to retrieve existing inventory identifiers for validation.' }, 500)
+        }
+        identifiers.push(...(page ?? []))
+        if (!page || page.length < 1000) break
+      }
+      return jsonResponse({
+        success: true,
+        itemTypes: types.data ?? [], brands: brands.data ?? [], models: models.data ?? [],
+        locations: locations.data ?? [], identifiers,
+      })
+    }
+
+    // ATOMIC INVENTORY BATCH IMPORT — DATABASE REVALIDATES BEFORE WRITING
+    if (action === 'batch_import') {
+      if (!isAdministrator) return jsonResponse({ error: 'Only administrators can import inventory.' }, 403)
+      if (body.acknowledged !== true) return jsonResponse({ error: 'Explicit import acknowledgement is required.' }, 400)
+      if (!Array.isArray(body.rows) || body.rows.length < 1 || body.rows.length > 1000) {
+        return jsonResponse({ error: 'The import must contain between 1 and 1,000 inventory rows.' }, 400)
+      }
+      const validText = (value: unknown, max = 500) => typeof value === 'string' && value.length <= max
+      if (body.rows.some((value) => {
+        if (!value || typeof value !== 'object') return true
+        const row = value as Record<string, unknown>
+        return !Number.isInteger(row.rowNumber) || Number(row.rowNumber) < 2
+          || !validText(row.itemType, 100) || !validText(row.brand, 100) || !validText(row.model, 100)
+          || !validText(row.serialNumber) || !validText(row.macAddress) || !validText(row.eoasis, 20)
+          || !validText(row.invoice) || !validText(row.purchaseDate, 10) || !validText(row.warrantyDate, 10)
+          || !validText(row.store) || !validText(row.location, 100)
+      })) return jsonResponse({ error: 'The inventory import contains invalid row data.' }, 400)
+      const rowNumbers = body.rows.map((value) => (value as Record<string, unknown>).rowNumber)
+      if (new Set(rowNumbers).size !== rowNumbers.length) return jsonResponse({ error: 'The inventory import contains repeated Excel row numbers.' }, 400)
+      const payloadSize = JSON.stringify(body.rows).length
+      if (payloadSize > 5 * 1024 * 1024) return jsonResponse({ error: 'The import data cannot exceed 5 MB.' }, 413)
+      const { data, error } = await serviceClient.rpc('inventory_batch_import', {
+        p_rows: body.rows, p_actor_id: actorId, p_actor_username: actorUsername,
+      })
+      if (error) {
+        console.error('Inventory batch import failed:', error.message, error.code)
+        if (error.code === '42501') return jsonResponse({ error: 'Only active administrators can import inventory.' }, 403)
+        if (error.code === '23505') return jsonResponse({ error: 'An inventory identifier or catalogue value changed during import. Review the rows and try again.' }, 409)
+        return jsonResponse({ error: error.message || 'The inventory could not be imported. No records were created.' }, 400)
+      }
+      if (data?.success === false) return jsonResponse({ error: 'Some rows need your attention. No records were created.', conflicts: data.conflicts ?? [] }, 409)
+      return jsonResponse({ success: true, createdCount: data?.createdCount ?? 0, created: data?.created ?? [] })
+    }
 
 const inventorySelect = `
   id,

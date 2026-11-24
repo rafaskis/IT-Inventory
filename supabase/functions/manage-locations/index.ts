@@ -84,7 +84,7 @@ Deno.serve(async (req) => {
     const body = await req.json()
     const { action } = body
 
-    if (!['list', 'create', 'update', 'delete'].includes(action)) {
+    if (!['list', 'create', 'update', 'delete', 'preview_batch', 'batch_import'].includes(action)) {
       return jsonResponse({ error: 'Invalid action.' }, 400)
     }
 
@@ -145,6 +145,55 @@ Deno.serve(async (req) => {
 
     if (action !== 'list' && profile.role !== 'administrator') {
       return jsonResponse({ error: 'Only administrators can create, modify or delete locations.' }, 403)
+    }
+
+    if (action === 'preview_batch') {
+      if (profile.role !== 'administrator') {
+        return jsonResponse({ error: 'Only administrators can import locations.' }, 403)
+      }
+      const { data, error } = await serviceClient
+        .from('locations')
+        .select('id, name, notes')
+        .order('name', { ascending: true })
+      if (error) return jsonResponse({ error: 'Could not validate the uploaded locations.' }, 500)
+      return jsonResponse({ locations: data ?? [] })
+    }
+
+    if (action === 'batch_import') {
+      if (profile.role !== 'administrator') {
+        return jsonResponse({ error: 'Only administrators can import locations.' }, 403)
+      }
+      if (body.acknowledged !== true) {
+        return jsonResponse({ error: 'Please acknowledge that this import cannot be undone.' }, 400)
+      }
+      if (!Array.isArray(body.rows) || body.rows.length < 1 || body.rows.length > 1000) {
+        return jsonResponse({ error: 'The import must contain between 1 and 1,000 rows.' }, 400)
+      }
+      const rows = body.rows.map((row: unknown, index: number) => {
+        const item = row && typeof row === 'object' ? row as Record<string, unknown> : {}
+        const suppliedRowNumber = Number(item.rowNumber)
+        return {
+          rowNumber: Number.isInteger(suppliedRowNumber) && suppliedRowNumber >= 2 ? suppliedRowNumber : index + 2,
+          name: typeof item.name === 'string' ? item.name : '',
+          notes: typeof item.notes === 'string' ? item.notes : '',
+        }
+      })
+      const payloadSize = rows.reduce((total: number, row: { name: string; notes: string }) => total + row.name.length + row.notes.length, 0)
+      if (payloadSize > 5 * 1024 * 1024) {
+        return jsonResponse({ error: 'The import data cannot exceed 5 MB.' }, 413)
+      }
+      const { data, error } = await serviceClient.rpc('location_batch_import', {
+        p_rows: rows,
+        p_actor_id: actorId,
+        p_actor_username: actorUsername,
+      })
+      if (error) {
+        if (error.code === '42501') return jsonResponse({ error: 'Only active administrators can import locations.' }, 403)
+        if (error.code === '23505') return jsonResponse({ error: 'A location was created by another user during this import. Please review the file and try again.' }, 409)
+        return jsonResponse({ error: 'The locations could not be imported. No records were created.' }, 400)
+      }
+      if (data?.success === false) return jsonResponse({ error: 'Some rows need your attention. No records were created.', conflicts: data.conflicts ?? [] }, 409)
+      return jsonResponse({ success: true, createdCount: data?.createdCount ?? 0 })
     }
 
     if (action === 'create') {
