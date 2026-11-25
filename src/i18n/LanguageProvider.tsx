@@ -91,7 +91,7 @@ const greek: Record<string, string> = {
   "Republic of Cyprus emblem": "Έμβλημα της Κυπριακής Δημοκρατίας",
   'Batch Import': 'Μαζική εισαγωγή',
   'Import data using prepared Excel templates. Additional import types will be added in later stages.': 'Εισαγωγή δεδομένων από έτοιμα πρότυπα Excel. Πρόσθετοι τύποι εισαγωγής θα προστεθούν σε επόμενα στάδια.',
-  'Import data using prepared Excel templates. Locations, employees and inventory are available.': 'Εισαγωγή δεδομένων από έτοιμα πρότυπα Excel. Είναι διαθέσιμη η εισαγωγή τοποθεσιών, υπαλλήλων και εξοπλισμού.',
+  'Import data using prepared Excel templates. Inventory, employees and locations are available.': 'Εισαγωγή δεδομένων από έτοιμα πρότυπα Excel. Είναι διαθέσιμη η εισαγωγή εξοπλισμού, υπαλλήλων και τοποθεσιών.',
   'You do not have permission to access batch import.': 'Δεν έχετε δικαίωμα πρόσβασης στη μαζική εισαγωγή.',
   'Locations — Stage 1': 'Τοποθεσίες — Στάδιο 1',
   'Batch Import is intended for initial population of the database and for newly bulk purchased items.': 'Η μαζική εισαγωγή προορίζεται για την αρχική καταχώριση δεδομένων και για νέες μαζικές αγορές εξοπλισμού.',
