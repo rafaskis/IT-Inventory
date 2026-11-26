@@ -43,6 +43,9 @@ const ACTION_LABELS: Record<string, string> = {
   inventory_item_created: 'Inventory item created',
   inventory_item_updated: 'Inventory item updated',
   inventory_item_deleted: 'Inventory item deleted',
+  inventory_item_moved_to_pending_scrap: 'Inventory item moved to ΠΡΟΣ ΑΠΟΣΥΡΣΗ',
+  inventory_item_scrapped: 'Inventory item scrapped',
+  inventory_item_gifted: 'Inventory item issued as a gift',
   employee_created: 'Employee created',
   employee_renamed: 'Employee renamed',
   employee_deleted: 'Employee deleted',
@@ -96,6 +99,17 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
   target_username: 'Target username',
   role: 'Account role',
   is_active: 'Account status',
+  lifecycle_status: 'Lifecycle status',
+  from_status: 'Previous lifecycle status',
+  to_status: 'New lifecycle status',
+  employee_assignments: 'Employee assignments',
+  gen_118: 'ΓΕΝ.118',
+  gen_118_date: 'ΓΕΝ.118 date',
+  gen_36: 'ΓΕΝ.36',
+  gen_36_date: 'ΓΕΝ.36 date',
+  gen_32a: 'ΓΕΝ.32Α',
+  gen_32a_date: 'ΓΕΝ.32Α date',
+  service_name: 'ΥΠΗΡΕΣΙΑ',
 };
 
 function downloadText(filename: string, content: string) {
@@ -159,7 +173,11 @@ function localizeAuditJson(
   if (value && typeof value === 'object') {
     return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, nested]) => {
       const label = AUDIT_FIELD_LABELS[key];
-      return [label ? t(label) : key, localizeAuditJson(nested, t, key)];
+      const nestedParentKey = ['old', 'new'].includes(key)
+        && ['lifecycle_status', 'from_status', 'to_status'].includes(parentKey)
+        ? parentKey
+        : key;
+      return [label ? t(label) : key, localizeAuditJson(nested, t, nestedParentKey)];
     }));
   }
   if (typeof value === 'string') {
@@ -168,6 +186,15 @@ function localizeAuditJson(
     if (parentKey === 'role') {
       const roles: Record<string, string> = { administrator: 'Administrator', inventory_manager: 'Inventory manager', viewer: 'Viewer' };
       return roles[value] ? t(roles[value]) : value;
+    }
+    if (parentKey === 'lifecycle_status' || parentKey === 'from_status' || parentKey === 'to_status') {
+      const statuses: Record<string, string> = {
+        active: 'Main inventory',
+        pending_scrap: 'ΠΡΟΣ ΑΠΟΣΥΡΣΗ',
+        scrapped: 'ΑΠΟΣΥΡΣΗ',
+        gifted: 'ΕΚΔΟΣΗ ΑΓΑΘΩΝ',
+      };
+      return statuses[value] ? t(statuses[value]) : value;
     }
   }
   if (typeof value === 'boolean' && parentKey === 'is_active') return value ? t('Active') : t('Inactive');

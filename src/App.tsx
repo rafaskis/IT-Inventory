@@ -26,13 +26,17 @@ import {
   FileSpreadsheet,
   Settings,
   Search,
-  Plus,
   Package,
   Boxes,
   Menu,
   X,
   Check,
   ChevronDown,
+  Archive,
+  Gift,
+  Trash2,
+  RefreshCw,
+  ChevronRight
 } from 'lucide-react'
 
 const navigation = [
@@ -46,25 +50,14 @@ const navigation = [
   { name: 'Batch Import', icon: FileSpreadsheet },
 ]
 
-type DashboardInventoryRow = {
-  id: number
-  item_code: string
-  serial_number: string | null
-  created_at: string
-  brand: { name: string; item_type: { id: number; name: string } | null } | null
-  model: { name: string } | null
-  location: { name: string } | null
-  assignments: { employee: { full_name: string } | null }[] | null
-}
+type InventorySection = 'active' | 'pending_scrap' | 'scrapped' | 'gifted'
 
-function formatDashboardEmployee(assignments: DashboardInventoryRow['assignments']) {
-  const names = (assignments ?? [])
-    .map((assignment) => assignment.employee?.full_name)
-    .filter((name): name is string => Boolean(name))
-  if (names.length === 0) return '—'
-  if (names.length > 1) return 'SHARED'
-  return names[0]
-}
+const inventorySubsections: { key: InventorySection; label: string; icon: typeof Package }[] = [
+  { key: 'active', label: 'Main Inventory', icon: Package },
+  { key: 'pending_scrap', label: 'Προς απόσυρση', icon: Archive },
+  { key: 'scrapped', label: 'Απόσυρση', icon: Trash2 },
+  { key: 'gifted', label: 'Έκδοση αγαθών', icon: Gift },
+]
 
 function Dashboard({
   username,
@@ -101,14 +94,33 @@ function Dashboard({
   useEffect(() => {
     sessionStorage.setItem(pageStorageKey, activePage)
   }, [pageStorageKey, activePage])
+  const inventorySectionStorageKey = `it-inventory-section:${userId}`
+  const [inventorySection, setInventorySection] = useState<InventorySection>(() => {
+    const saved = sessionStorage.getItem(`it-inventory-section:${userId}`)
+    return saved === 'pending_scrap' || saved === 'scrapped' || saved === 'gifted' ? saved : 'active'
+  })
+  const [inventoryExpanded, setInventoryExpanded] = useState(activePage === 'Inventory')
+
+  useEffect(() => {
+    sessionStorage.setItem(inventorySectionStorageKey, inventorySection)
+  }, [inventorySectionStorageKey, inventorySection])
+
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const navigateInventory = (section: InventorySection = 'active') => {
+    setInventorySection(section)
+    setActivePage('Inventory')
+    setInventoryExpanded(true)
+    setSidebarOpen(false)
+  }
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
   const [languageMenuOpen, setLanguageMenuOpen] = useState(false)
   const [languageSwitchError, setLanguageSwitchError] = useState('')
   const [dashboardLoading, setDashboardLoading] = useState(true)
   const [dashboardError, setDashboardError] = useState<string | null>(null)
   const [totalEquipment, setTotalEquipment] = useState(0)
-  const [recentInventory, setRecentInventory] = useState<DashboardInventoryRow[]>([])
+  const [pendingScrapCount, setPendingScrapCount] = useState(0)
+  const [scrappedCount, setScrappedCount] = useState(0)
+  const [giftedCount, setGiftedCount] = useState(0)
 
   async function changeHeaderLanguage(nextLanguage: Language) {
     setLanguageSwitchError('')
@@ -136,24 +148,19 @@ function Dashboard({
     setDashboardLoading(true)
     setDashboardError(null)
     try {
-      const [totalResult, recentResult] = await Promise.all([
-        supabase.from('inventory_items').select('id', { count: 'exact', head: true }),
-        supabase.from('inventory_items').select(`
-          id, item_code, serial_number, created_at,
-          brand:brands!inventory_items_brand_id_item_type_id_fkey(
-            name,
-            item_type:item_types!brands_item_type_id_fkey(id, name)
-          ),
-          model:models!inventory_items_model_id_brand_id_item_type_id_fkey(name),
-          location:locations(name),
-          assignments:inventory_item_employees(employee:employees(full_name))
-        `).order('created_at', { ascending: false }).order('id', { ascending: false }).limit(10),
+      const [totalResult, pendingResult, scrappedResult, giftedResult] = await Promise.all([
+        supabase.from('inventory_items').select('id', { count: 'exact', head: true }).eq('lifecycle_status', 'active'),
+        supabase.from('inventory_items').select('id', { count: 'exact', head: true }).eq('lifecycle_status', 'pending_scrap'),
+        supabase.from('inventory_items').select('id', { count: 'exact', head: true }).eq('lifecycle_status', 'scrapped'),
+        supabase.from('inventory_items').select('id', { count: 'exact', head: true }).eq('lifecycle_status', 'gifted'),
       ])
-      if (totalResult.error) throw totalResult.error
-      if (recentResult.error) throw recentResult.error
+      const failedCount = [totalResult, pendingResult, scrappedResult, giftedResult].find((result) => result.error)
+      if (failedCount?.error) throw failedCount.error
 
       setTotalEquipment(totalResult.count ?? 0)
-      setRecentInventory((recentResult.data ?? []) as unknown as DashboardInventoryRow[])
+      setPendingScrapCount(pendingResult.count ?? 0)
+      setScrappedCount(scrappedResult.count ?? 0)
+      setGiftedCount(giftedResult.count ?? 0)
     } catch (error) {
       console.error('Dashboard data load failed:', error)
       setDashboardError('Dashboard data could not be loaded. Please try again.')
@@ -238,21 +245,54 @@ function Dashboard({
               const active = activePage === item.name
 
               return (
-                <button
-                  key={item.name}
-                  onClick={() => {
-                    setActivePage(item.name)
-                    setSidebarOpen(false)
-                  }}
-                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition ${
-                    active
-                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-950/30'
-                      : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                  }`}
-                >
-                  <Icon size={19} />
-                  {t(item.name)}
-                </button>
+                <div key={item.name}>
+                  <button
+                    onClick={() => {
+                      if (item.name === 'Inventory') {
+                        if (activePage === 'Inventory') setInventoryExpanded((open) => !open)
+                        else {
+                          setActivePage('Inventory')
+                          setInventorySection('active')
+                          setInventoryExpanded(true)
+                        }
+                      } else {
+                        setActivePage(item.name)
+                        setSidebarOpen(false)
+                      }
+                    }}
+                    aria-expanded={item.name === 'Inventory' ? inventoryExpanded : undefined}
+                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition ${
+                      active
+                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-950/30'
+                        : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                    }`}
+                  >
+                    <Icon size={19} />
+                    <span className="flex-1 text-left">{t(item.name)}</span>
+                    {item.name === 'Inventory' && <ChevronDown size={16} className={`transition-transform ${inventoryExpanded ? 'rotate-180' : ''}`} />}
+                  </button>
+                  {item.name === 'Inventory' && inventoryExpanded && (
+                    <div className="ml-4 mt-1 space-y-1 border-l border-slate-700 pl-3">
+                      {inventorySubsections.map((subsection) => {
+                        const SubIcon = subsection.icon
+                        const selected = activePage === 'Inventory' && inventorySection === subsection.key
+                        return (
+                          <button
+                            key={subsection.key}
+                            type="button"
+                            onClick={() => navigateInventory(subsection.key)}
+                            className={`flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-medium transition ${
+                              selected ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                            }`}
+                          >
+                            <SubIcon size={15} />
+                            <span>{t(subsection.label)}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
               )
             })}
           </nav>
@@ -441,89 +481,99 @@ function Dashboard({
     </div>
   )
 ) : activePage === 'Inventory' ? (
-  <Inventory />
+  <Inventory section={inventorySection} role={role} />
 ) : activePage === 'Dashboard' ? (
             <>
-              <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+              <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
                 <div>
                   <h3 className="text-2xl font-bold text-slate-900">{t("Dashboard Overview")}</h3>
                   <p className="mt-1 text-sm text-slate-500">{t("Here's an overview of your company's IT equipment.")}</p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm" title={t("Total registered inventory items")}>
-                    <Package size={17} className="text-blue-600" />
-                    <span className="text-xs font-medium text-slate-500">{t("Total Equipment")}</span>
-                    <span className="text-sm font-bold tabular-nums text-slate-900">{dashboardLoading ? '…' : formatNumber(totalEquipment, language)}</span>
-                  </div>
-                  <button
-                    onClick={() => void loadDashboard()}
-                    disabled={dashboardLoading}
-                    className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    {dashboardLoading ? t('Refreshing…') : t('Refresh')}
-                  </button>
-                  <button
-                    onClick={() => setActivePage('Inventory')}
-                    className="flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
-                  >
-                    <Plus size={18} />{t("View Inventory")}</button>
-                </div>
+                <button
+                  onClick={() => void loadDashboard()}
+                  disabled={dashboardLoading}
+                  className="inline-flex items-center justify-center gap-2 self-start rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:self-auto"
+                >
+                  <span className={dashboardLoading ? 'animate-spin' : ''}><RefreshCw size={16} /></span>
+                  {dashboardLoading ? t('Refreshing…') : t('Refresh')}
+                </button>
               </div>
 
-              <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                <div className="flex flex-col justify-between gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center">
-                  <div>
-                    <h3 className="font-bold text-slate-900">{t("Recent Inventory")}</h3>
-                    <p className="mt-1 text-xs text-slate-500">{t("Recently registered equipment")}</p>
+              {dashboardError && (
+                <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {t(dashboardError)}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+                <button
+                  type="button"
+                  onClick={() => navigateInventory('active')}
+                  className="group relative flex aspect-square w-full flex-col justify-between overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-white via-white to-emerald-50 p-6 text-left shadow-sm transition duration-200 hover:-translate-y-1 hover:border-emerald-300 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2"
+                >
+                  <div className="pointer-events-none absolute -right-8 -top-8 h-40 w-40 rounded-full bg-emerald-100/70 transition-transform duration-300 group-hover:scale-110" />
+                  <div className="relative flex items-start justify-between">
+                    <div className="rounded-2xl bg-emerald-100 p-3 text-emerald-700"><Package size={27} /></div>
+                    <ChevronRight size={20} className="text-emerald-500 transition-transform group-hover:translate-x-1" />
                   </div>
-                  <button
-                    onClick={() => setActivePage('Inventory')}
-                    className="text-left text-sm font-semibold text-blue-600 hover:text-blue-800 sm:text-right"
-                  >{t("View all inventory →")}</button>
-                </div>
+                  <div className="relative">
+                    <p className="text-sm font-semibold tracking-wide text-emerald-800">{t('Main inventory')}</p>
+                    <p className="mt-2 text-5xl font-bold tracking-tight text-slate-900 tabular-nums">{dashboardLoading ? '—' : formatNumber(totalEquipment, language)}</p>
+                    <p className="mt-3 text-xs font-medium text-slate-500">{t('Active inventory items')}</p>
+                  </div>
+                </button>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[850px] text-left text-sm">
-                    <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                      <tr>
-                        <th className="px-5 py-4 font-semibold">{t("Item ID")}</th>
-                        <th className="px-5 py-4 font-semibold">{t("Equipment")}</th>
-                        <th className="px-5 py-4 font-semibold">{t("Serial Number")}</th>
-                        <th className="px-5 py-4 font-semibold">{t("EMPLOYEE")}</th>
-                        <th className="px-5 py-4 font-semibold">{t("Location")}</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {dashboardLoading ? (
-                        <tr><td colSpan={5} className="px-5 py-10 text-center text-slate-500">{t("Loading recent inventory…")}</td></tr>
-                      ) : dashboardError ? (
-                        <tr><td colSpan={5} className="px-5 py-10 text-center text-red-600">{t(dashboardError)}</td></tr>
-                      ) : recentInventory.length === 0 ? (
-                        <tr><td colSpan={5} className="px-5 py-10 text-center text-slate-500">{t("No inventory items have been registered yet.")}</td></tr>
-                      ) : recentInventory.map((item) => (
-                        <tr key={item.id} className="hover:bg-slate-50">
-                          <td className="whitespace-nowrap px-5 py-4 font-medium text-blue-600">{item.item_code}</td>
-                          <td className="px-5 py-4">
-                            <p className="font-medium text-slate-800">{item.brand?.name ?? '—'} {item.model?.name ?? ''}</p>
-                            <p className="mt-1 text-xs text-slate-400">{item.brand?.item_type?.name ?? '—'}</p>
-                          </td>
-                          <td className="px-5 py-4 text-slate-600">{item.serial_number || '—'}</td>
-                          <td className="px-5 py-4 text-slate-600">{formatDashboardEmployee(item.assignments) === 'SHARED' ? t('SHARED') : formatDashboardEmployee(item.assignments)}</td>
-                          <td className="px-5 py-4 text-slate-600">{item.location?.name ?? '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => navigateInventory('pending_scrap')}
+                  className="group relative flex aspect-square w-full flex-col justify-between overflow-hidden rounded-2xl border border-amber-200 bg-gradient-to-br from-white via-white to-amber-50 p-6 text-left shadow-sm transition duration-200 hover:-translate-y-1 hover:border-amber-300 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2"
+                >
+                  <div className="pointer-events-none absolute -right-8 -top-8 h-40 w-40 rounded-full bg-amber-100/70 transition-transform duration-300 group-hover:scale-110" />
+                  <div className="relative flex items-start justify-between">
+                    <div className="rounded-2xl bg-amber-100 p-3 text-amber-700"><Archive size={27} /></div>
+                    <ChevronRight size={20} className="text-amber-500 transition-transform group-hover:translate-x-1" />
+                  </div>
+                  <div className="relative">
+                    <p className="text-sm font-semibold tracking-wide text-amber-800">{t('Προς απόσυρση')}</p>
+                    <p className="mt-2 text-5xl font-bold tracking-tight text-slate-900 tabular-nums">{dashboardLoading ? '—' : formatNumber(pendingScrapCount, language)}</p>
+                    <p className="mt-3 text-xs font-medium text-slate-500">{t('Items awaiting scrapping')}</p>
+                  </div>
+                </button>
 
-                <div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-400">
-                  {dashboardLoading
-                    ? t('Loading records…')
-                    : recentInventory.length === 1
-                      ? t('Εμφανίζεται 1 πιο πρόσφατη καταχώριση')
-                      : t('Εμφανίζονται οι πιο πρόσφατες καταχωρίσεις')}
-                </div>
-              </section>
+                <button
+                  type="button"
+                  onClick={() => navigateInventory('scrapped')}
+                  className="group relative flex aspect-square w-full flex-col justify-between overflow-hidden rounded-2xl border border-rose-200 bg-gradient-to-br from-white via-white to-rose-50 p-6 text-left shadow-sm transition duration-200 hover:-translate-y-1 hover:border-rose-300 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-rose-400 focus:ring-offset-2"
+                >
+                  <div className="pointer-events-none absolute -right-8 -top-8 h-40 w-40 rounded-full bg-rose-100/70 transition-transform duration-300 group-hover:scale-110" />
+                  <div className="relative flex items-start justify-between">
+                    <div className="rounded-2xl bg-rose-100 p-3 text-rose-700"><Trash2 size={27} /></div>
+                    <ChevronRight size={20} className="text-rose-500 transition-transform group-hover:translate-x-1" />
+                  </div>
+                  <div className="relative">
+                    <p className="text-sm font-semibold tracking-wide text-rose-800">{t('Απόσυρση')}</p>
+                    <p className="mt-2 text-5xl font-bold tracking-tight text-slate-900 tabular-nums">{dashboardLoading ? '—' : formatNumber(scrappedCount, language)}</p>
+                    <p className="mt-3 text-xs font-medium text-slate-500">{t('Scrapped items')}</p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => navigateInventory('gifted')}
+                  className="group relative flex aspect-square w-full flex-col justify-between overflow-hidden rounded-2xl border border-sky-200 bg-gradient-to-br from-white via-white to-sky-50 p-6 text-left shadow-sm transition duration-200 hover:-translate-y-1 hover:border-sky-300 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2"
+                >
+                  <div className="pointer-events-none absolute -right-8 -top-8 h-40 w-40 rounded-full bg-sky-100/70 transition-transform duration-300 group-hover:scale-110" />
+                  <div className="relative flex items-start justify-between">
+                    <div className="rounded-2xl bg-sky-100 p-3 text-sky-700"><Gift size={27} /></div>
+                    <ChevronRight size={20} className="text-sky-500 transition-transform group-hover:translate-x-1" />
+                  </div>
+                  <div className="relative">
+                    <p className="text-sm font-semibold tracking-wide text-sky-800">{t('Έκδοση αγαθών')}</p>
+                    <p className="mt-2 text-5xl font-bold tracking-tight text-slate-900 tabular-nums">{dashboardLoading ? '—' : formatNumber(giftedCount, language)}</p>
+                    <p className="mt-3 text-xs font-medium text-slate-500">{t('Items issued as gifts')}</p>
+                  </div>
+                </button>
+              </div>
             </>
           ) : activePage === 'Settings' ? (
             <SettingsPage
@@ -555,7 +605,8 @@ function Dashboard({
           onNavigate={(page) => {
             if ((page === 'Accounts' || page === 'Batch Import') && role !== 'administrator') return
             if (['Catalogues', 'Employees', 'Locations'].includes(page) && !['administrator', 'inventory_manager'].includes(role)) return
-            setActivePage(page)
+            if (page === 'Inventory') navigateInventory('active')
+            else setActivePage(page)
           }}
         />
       )}

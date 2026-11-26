@@ -30,6 +30,21 @@ const isPositiveInteger = (value: unknown) => {
   return Number.isSafeInteger(number) && number > 0
 }
 
+const isSingleLineText = (value: unknown, maxLength = 200): value is string =>
+  typeof value === 'string'
+  && value.trim().length > 0
+  && value.trim().length <= maxLength
+  && !/[\r\n]/.test(value)
+
+const isValidDateOnly = (value: unknown): value is string => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day
+}
+
 const normalizeMacAddress = (item: Record<string, unknown>): string | null => {
   if (!Object.prototype.hasOwnProperty.call(item, 'mac_address')) return null
   const value = item.mac_address
@@ -63,6 +78,9 @@ const normalizeEmployeeIds = (value: unknown): number[] | null => {
 const mapRpcError = (error: { code?: string; message?: string }) => {
   const message = error.message ?? 'The inventory operation failed.'
 
+  if (error.code === '42501') {
+    return jsonResponse({ error: message }, 403)
+  }
   if (error.code === '23505') {
     return jsonResponse({ error: 'A record with one of these values already exists.' }, 409)
   }
@@ -151,11 +169,11 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: 'Invalid shared-items visibility setting.' }, 400)
     }
 
-    if (!['list', 'filter_options', 'get', 'create', 'update', 'update_with_related', 'bulk_update', 'get_many', 'preview_batch', 'batch_import'].includes(String(action))) {
+    if (!['list', 'filter_options', 'get', 'create', 'update', 'update_with_related', 'bulk_update', 'get_many', 'preview_batch', 'batch_import', 'lifecycle_list', 'lifecycle_filter_options', 'transition_lifecycle'].includes(String(action))) {
       return jsonResponse({ error: 'Invalid action.' }, 400)
     }
 
-    if (['create', 'update', 'update_with_related', 'bulk_update', 'get_many'].includes(String(action)) && !canManage) {
+    if (['create', 'update', 'update_with_related', 'bulk_update', 'get_many', 'transition_lifecycle'].includes(String(action)) && !canManage) {
       return jsonResponse({ error: 'You are not authorized to modify inventory.' }, 403)
     }
 
@@ -249,6 +267,14 @@ const inventorySelect = `
   purchase_date,
   warranty_until,
   store,
+  lifecycle_status,
+  gen_118,
+  gen_118_date,
+  gen_36,
+  gen_36_date,
+  gen_32a,
+  service_name,
+  gen_32a_date,
   created_by,
   updated_by,
   created_at,
@@ -263,6 +289,40 @@ const inventorySelect = `
   assignments:inventory_item_employees(
     employee:employees(id, full_name)
   )
+    `
+
+    const lifecycleSelect = `
+  id,
+  item_code,
+  item_type_id,
+  brand_id,
+  model_id,
+  serial_number,
+  mac_address,
+  notes,
+  document_number,
+  invoice,
+  purchase_date,
+  warranty_until,
+  store,
+  lifecycle_status,
+  gen_118,
+  gen_118_date,
+  gen_36,
+  gen_36_date,
+  gen_32a,
+  service_name,
+  gen_32a_date,
+  created_by,
+  updated_by,
+  created_at,
+  updated_at,
+  brand:brands!inventory_items_brand_id_item_type_id_fkey(
+    id,
+    name,
+    item_type:item_types!brands_item_type_id_fkey(id, name)
+  ),
+  model:models!inventory_items_model_id_brand_id_item_type_id_fkey(id, name)
     `
 
     const attachActorNames = async (items: Record<string, unknown>[]) => {
@@ -295,6 +355,219 @@ const inventorySelect = `
           .filter((employee): employee is { id: number; full_name: string } => employee !== null)
           .sort((a, b) => a.full_name.localeCompare(b.full_name)),
       }))
+    }
+
+    if (action === 'lifecycle_filter_options') {
+      const lifecycleStatus = String(body.lifecycle_status ?? '')
+      if (!['pending_scrap', 'scrapped', 'gifted'].includes(lifecycleStatus)) {
+        return jsonResponse({ error: 'Invalid inventory lifecycle section.' }, 400)
+      }
+
+      const [types, brandRows, modelRows] = await Promise.all([
+        serviceClient.from('item_types').select('id, name').order('name'),
+        serviceClient.from('brands').select('id, item_type_id, name').order('name'),
+        serviceClient.from('models').select('id, item_type_id, brand_id, name').order('name'),
+      ])
+      const failed = [types, brandRows, modelRows].find((result) => result.error)
+      if (failed?.error) {
+        console.error('Lifecycle filter options error:', failed.error.message)
+        return jsonResponse({ error: 'Could not load lifecycle filter options.' }, 500)
+      }
+      return jsonResponse({
+        options: {
+          item_types: types.data ?? [],
+          brands: brandRows.data ?? [],
+          models: modelRows.data ?? [],
+        },
+      })
+    }
+
+    if (action === 'lifecycle_list') {
+      const lifecycleStatus = String(body.lifecycle_status ?? '')
+      if (!['pending_scrap', 'scrapped', 'gifted'].includes(lifecycleStatus)) {
+        return jsonResponse({ error: 'Invalid inventory lifecycle section.' }, 400)
+      }
+
+      const page = Math.max(1, Math.min(100000, Number.parseInt(String(body.page ?? 1), 10) || 1))
+      const pageSize = Math.max(1, Math.min(100, Number.parseInt(String(body.page_size ?? 25), 10) || 25))
+      const allowedSortColumns = [
+        'item_code', 'serial_number', 'document_number', 'purchase_date',
+        'warranty_until', 'store', 'created_at', 'updated_at',
+        'gen_118_date', 'gen_36_date', 'gen_32a_date',
+      ]
+      const requestedSort = String(body.sort_by ?? 'updated_at')
+      if (!allowedSortColumns.includes(requestedSort)) {
+        return jsonResponse({ error: 'Invalid sort field.' }, 400)
+      }
+      const sortOrder = body.sort_order === undefined ? 'desc' : String(body.sort_order)
+      if (!['asc', 'desc'].includes(sortOrder)) {
+        return jsonResponse({ error: 'Invalid sort order.' }, 400)
+      }
+
+      const filters = body.filters && typeof body.filters === 'object' && !Array.isArray(body.filters)
+        ? body.filters as Record<string, unknown>
+        : {}
+      const allowedFilterNames = new Set([
+        'item_type_ids', 'brand_ids', 'model_ids', 'lifecycle_reference',
+        'purchase_date_from', 'purchase_date_to',
+        'warranty_date_from', 'warranty_date_to',
+        'lifecycle_date_from', 'lifecycle_date_to',
+      ])
+      const unknownFilters = Object.keys(filters).filter((field) => !allowedFilterNames.has(field))
+      if (unknownFilters.length > 0) {
+        return jsonResponse({ error: `Unknown filter: ${unknownFilters[0]}.` }, 400)
+      }
+
+      const lifecycleReferenceValue = filters.lifecycle_reference
+      if (lifecycleReferenceValue !== undefined && lifecycleReferenceValue !== null
+          && (typeof lifecycleReferenceValue !== 'string'
+            || lifecycleReferenceValue.length > 100
+            || /[\r\n]/.test(lifecycleReferenceValue))) {
+        return jsonResponse({ error: 'Invalid lifecycle document reference filter.' }, 400)
+      }
+      const lifecycleReference = typeof lifecycleReferenceValue === 'string'
+        ? lifecycleReferenceValue.trim().replace(/[%_]/g, '')
+        : ''
+
+      const idFilters: Record<string, number[]> = {
+        item_type_ids: [], brand_ids: [], model_ids: [],
+      }
+      for (const field of Object.keys(idFilters)) {
+        const normalized = normalizeFilterIds(filters[field])
+        if (normalized === null) {
+          return jsonResponse({ error: `Invalid ${field} filter. Supply up to 100 positive integer IDs.` }, 400)
+        }
+        idFilters[field] = normalized
+      }
+
+      const dateFilterNames = [
+        'purchase_date_from', 'purchase_date_to',
+        'warranty_date_from', 'warranty_date_to',
+        'lifecycle_date_from', 'lifecycle_date_to',
+      ] as const
+      const dateFilters: Record<(typeof dateFilterNames)[number], string | null> = {
+        purchase_date_from: null, purchase_date_to: null,
+        warranty_date_from: null, warranty_date_to: null,
+        lifecycle_date_from: null, lifecycle_date_to: null,
+      }
+      for (const field of dateFilterNames) {
+        const value = filters[field]
+        if (value !== undefined && value !== null && value !== '') {
+          if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+            return jsonResponse({ error: `Invalid ${field} date.` }, 400)
+          }
+          dateFilters[field] = value
+        }
+      }
+      if (dateFilters.purchase_date_from && dateFilters.purchase_date_to
+          && dateFilters.purchase_date_from > dateFilters.purchase_date_to) {
+        return jsonResponse({ error: 'Purchase date start cannot be after purchase date end.' }, 400)
+      }
+      if (dateFilters.warranty_date_from && dateFilters.warranty_date_to
+          && dateFilters.warranty_date_from > dateFilters.warranty_date_to) {
+        return jsonResponse({ error: 'Warranty date start cannot be after warranty date end.' }, 400)
+      }
+      if (dateFilters.lifecycle_date_from && dateFilters.lifecycle_date_to
+          && dateFilters.lifecycle_date_from > dateFilters.lifecycle_date_to) {
+        return jsonResponse({ error: 'Lifecycle date start cannot be after lifecycle date end.' }, 400)
+      }
+
+      const search = typeof body.search === 'string' ? body.search.trim().slice(0, 100) : ''
+      const safeSearch = search.replace(/[,%()"\\]/g, ' ').replace(/\s+/g, ' ').trim()
+      let query = serviceClient
+        .from('inventory_items')
+        .select(lifecycleSelect, { count: 'exact' })
+        .eq('lifecycle_status', lifecycleStatus)
+
+      if (safeSearch) {
+        const pattern = `%${safeSearch}%`
+        const lifecycleReferenceColumn = lifecycleStatus === 'pending_scrap'
+          ? 'gen_118'
+          : lifecycleStatus === 'scrapped' ? 'gen_36' : 'gen_32a'
+        query = query.or([
+          `item_code.ilike.${pattern}`,
+          `serial_number.ilike.${pattern}`,
+          `${lifecycleReferenceColumn}.ilike.${pattern}`,
+        ].join(','))
+      }
+      if (idFilters.item_type_ids.length) query = query.in('item_type_id', idFilters.item_type_ids)
+      if (idFilters.brand_ids.length) query = query.in('brand_id', idFilters.brand_ids)
+      if (idFilters.model_ids.length) query = query.in('model_id', idFilters.model_ids)
+      if (dateFilters.purchase_date_from) query = query.gte('purchase_date', dateFilters.purchase_date_from)
+      if (dateFilters.purchase_date_to) query = query.lte('purchase_date', dateFilters.purchase_date_to)
+      if (dateFilters.warranty_date_from) query = query.gte('warranty_until', dateFilters.warranty_date_from)
+      if (dateFilters.warranty_date_to) query = query.lte('warranty_until', dateFilters.warranty_date_to)
+      const lifecycleDateColumn = lifecycleStatus === 'pending_scrap'
+        ? 'gen_118_date'
+        : lifecycleStatus === 'scrapped' ? 'gen_36_date' : 'gen_32a_date'
+      const lifecycleReferenceColumn = lifecycleStatus === 'pending_scrap'
+        ? 'gen_118'
+        : lifecycleStatus === 'scrapped' ? 'gen_36' : 'gen_32a'
+      if (lifecycleReference) query = query.ilike(lifecycleReferenceColumn, `%${lifecycleReference}%`)
+      if (dateFilters.lifecycle_date_from) query = query.gte(lifecycleDateColumn, dateFilters.lifecycle_date_from)
+      if (dateFilters.lifecycle_date_to) query = query.lte(lifecycleDateColumn, dateFilters.lifecycle_date_to)
+
+      const { data, error, count } = await query
+        .order(requestedSort, { ascending: sortOrder === 'asc', nullsFirst: false })
+        .order('id', { ascending: true })
+        .range((page - 1) * pageSize, page * pageSize - 1)
+
+      if (error) {
+        console.error('Lifecycle inventory list error:', error.message)
+        return jsonResponse({ error: 'Could not load lifecycle inventory items.' }, 500)
+      }
+      const items = await attachActorNames((data ?? []) as unknown as Record<string, unknown>[])
+      const total = count ?? 0
+      return jsonResponse({
+        items, total, page, page_size: pageSize,
+        total_pages: Math.ceil(total / pageSize),
+      })
+    }
+
+    if (action === 'transition_lifecycle') {
+      const lifecycleStatus = String(body.target_status ?? '')
+      if (!['pending_scrap', 'scrapped', 'gifted'].includes(lifecycleStatus)) {
+        return jsonResponse({ error: 'Invalid inventory lifecycle transition.' }, 400)
+      }
+      if (!Array.isArray(body.item_ids)
+          || body.item_ids.length < 1
+          || body.item_ids.length > 500
+          || !body.item_ids.every(isPositiveInteger)) {
+        return jsonResponse({ error: 'Select between 1 and 500 inventory items.' }, 400)
+      }
+      const itemIds = [...new Set(body.item_ids.map(Number))]
+      if (itemIds.length !== body.item_ids.length) {
+        return jsonResponse({ error: 'The selection contains duplicate inventory items.' }, 400)
+      }
+      const reference = body.reference
+      if (!isSingleLineText(reference, 200)) {
+        return jsonResponse({ error: 'A valid single-line document reference of up to 200 characters is required.' }, 400)
+      }
+      const transitionDate = body.transition_date
+      if (!isValidDateOnly(transitionDate)) {
+        return jsonResponse({ error: 'Select a valid lifecycle date.' }, 400)
+      }
+      const serviceName = body.service_name
+      if (lifecycleStatus === 'gifted') {
+        if (!isSingleLineText(serviceName, 200)) {
+          return jsonResponse({ error: 'A valid single-line service name of up to 200 characters is required.' }, 400)
+        }
+      } else if (serviceName !== undefined && serviceName !== null && serviceName !== '') {
+        return jsonResponse({ error: 'A service name is only required for the goods issue transition.' }, 400)
+      }
+      const normalizedServiceName = lifecycleStatus === 'gifted' ? String(serviceName).trim() : null
+
+      const { data, error } = await serviceClient.rpc('inventory_transition_items', {
+        p_item_ids: itemIds,
+        p_target_status: lifecycleStatus,
+        p_reference: reference.trim(),
+        p_service_name: normalizedServiceName,
+        p_transition_date: transitionDate,
+        p_actor_id: actorId,
+        p_actor_username: actorUsername,
+      })
+      if (error) return mapRpcError(error)
+      return jsonResponse(data ?? { success: true, updatedCount: itemIds.length })
     }
 
     if (action === 'filter_options') {
@@ -502,6 +775,7 @@ const inventorySelect = `
         .from('inventory_items')
         .select(inventorySelect)
         .in('id', itemIds)
+        .eq('lifecycle_status', 'active')
 
       if (error) {
         console.error('Inventory list item fetch error:', error)
@@ -534,6 +808,7 @@ const inventorySelect = `
         .from('inventory_items')
         .select(inventorySelect)
         .eq('id', Number(body.id))
+        .eq('lifecycle_status', 'active')
         .maybeSingle()
 
       if (error) {
@@ -551,7 +826,7 @@ const inventorySelect = `
         return jsonResponse({ error: 'Supply between 1 and 500 valid inventory item IDs.' }, 400)
       }
       const ids = [...new Set(body.item_ids.map(Number))]
-      const { data, error } = await serviceClient.from('inventory_items').select(inventorySelect).in('id', ids)
+      const { data, error } = await serviceClient.from('inventory_items').select(inventorySelect).in('id', ids).eq('lifecycle_status', 'active')
       if (error) {
         console.error('Inventory bulk preview error:', error)
         return jsonResponse({ error: 'Could not load the selected inventory items.' }, 500)

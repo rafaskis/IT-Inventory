@@ -54,7 +54,7 @@ export default function GlobalSearch({ onClose, onNavigate }: Props) {
       try {
         const pattern = `%${term.replace(/[%_,().]/g, ' ')}%`
         const [inventory, employees, locations, types, brands, models] = await Promise.all([
-          supabase.from('inventory_items').select('id,item_code,serial_number,mac_address,pc_name,ip_address,socket').or(`item_code.ilike.${pattern},serial_number.ilike.${pattern},mac_address.ilike.${pattern},pc_name.ilike.${pattern},ip_address.ilike.${pattern},socket.ilike.${pattern}`).limit(8),
+          supabase.from('inventory_items').select('id,item_code,serial_number,mac_address,pc_name,ip_address,socket').or(`item_code.ilike.${pattern},serial_number.ilike.${pattern},mac_address.ilike.${pattern},pc_name.ilike.${pattern},ip_address.ilike.${pattern},socket.ilike.${pattern}`).eq('lifecycle_status', 'active').limit(8),
           supabase.from('employees').select('id,full_name').order('full_name').limit(1000),
           supabase.from('locations').select('id,name').order('name').limit(1000),
           supabase.from('item_types').select('id,name').order('name').limit(1000),

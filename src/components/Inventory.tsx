@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   AlertCircle,
+  Archive,
+  Gift,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -15,6 +17,7 @@ import {
   FileDown,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import InventoryLifecycle, { LifecycleTransitionDialog, type InventoryLifecycleSection, type InventoryLifecycleTarget } from './InventoryLifecycle';
 import { formatNumber, useLanguage, type Language } from '../i18n/LanguageProvider';
 
 type Employee = {
@@ -364,7 +367,7 @@ function MultiSelectFilter({
   );
 }
 
-export default function Inventory() {
+function ActiveInventory() {
   const { t, language } = useLanguage();
   const translateMessage = (message: string) => {
     let match = message.match(/^“(.+)” already exists or has already been added\.$/);
@@ -487,6 +490,9 @@ export default function Inventory() {
   const [bulkApplyNotes, setBulkApplyNotes] = useState(false);
   const [bulkNotes, setBulkNotes] = useState('');
   const [bulkClearNotes, setBulkClearNotes] = useState(false);
+  const [transitionTarget, setTransitionTarget] = useState<InventoryLifecycleTarget | null>(null);
+  const [transitionItemIds, setTransitionItemIds] = useState<number[]>([]);
+  const [transitionFromEdit, setTransitionFromEdit] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1082,6 +1088,17 @@ export default function Inventory() {
     await loadInventory();
   };
 
+  const openLifecycleTransition = (
+    target: InventoryLifecycleTarget,
+    itemIds: number[],
+    fromEdit = false,
+  ) => {
+    if (!canManageInventory || itemIds.length === 0) return;
+    setTransitionTarget(target);
+    setTransitionItemIds(itemIds);
+    setTransitionFromEdit(fromEdit);
+  };
+
   const openExportDialog = async (type: 'standard' | 'debit') => {
     setExportType(type);
     setExportColumns(type === 'debit' ? VOUCHER_PDF_DEFAULT_COLUMNS : STANDARD_PDF_DEFAULT_COLUMNS);
@@ -1442,6 +1459,8 @@ export default function Inventory() {
             {total > items.length && total <= 500 && selectedItemIds.length !== total && <button type="button" onClick={() => void selectAllMatchingItems()} className="text-sm font-medium text-blue-700 underline hover:text-blue-900">{t('Select all {total} matching items', { total })}</button>}
             {total > 500 && <span className="text-xs text-blue-800">{t('Select all is available when filters return 500 items or fewer.')}</span>}
             <button type="button" onClick={() => void openBulkForm()} disabled={selectedItemIds.length < 2 || bulkLoading} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{bulkLoading ? t('Loading preview…') : t('Bulk edit {count} items', { count: selectedItemIds.length })}</button>
+            <button type="button" onClick={() => openLifecycleTransition('pending_scrap', selectedItemIds)} className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700"><Archive size={15}/>{t('ΠΡΟΣ ΑΠΟΣΥΡΣΗ')}</button>
+            <button type="button" onClick={() => openLifecycleTransition('gifted', selectedItemIds)} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"><Gift size={15}/>{t('ΕΚΔΟΣΗ ΑΓΑΘΩΝ')}</button>
             <button type="button" onClick={() => setSelectedItemIds([])} className="text-sm text-blue-700 hover:text-blue-900">{t('Clear selection')}</button>
           </div>
         </div>}
@@ -1756,6 +1775,20 @@ export default function Inventory() {
                 <label className="mb-1 block text-sm font-medium text-gray-700">{t('Notes')}</label>
                 <textarea rows={3} value={editDraft.notes} onChange={e=>setEditDraft(d=>({...d,notes:e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"/>
               </div>
+              {canManageInventory && (
+                <div className="md:col-span-2 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                  <h3 className="text-sm font-semibold text-slate-900">{t('Inventory lifecycle')}</h3>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">{t('These operations move the item out of the main inventory and cannot be reversed.')}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button type="button" onClick={() => editingItem && openLifecycleTransition('pending_scrap', [editingItem.id], true)} disabled={!editingItem || editSaving} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50">
+                      <Archive size={16}/>{t('ΠΡΟΣ ΑΠΟΣΥΡΣΗ')}
+                    </button>
+                    <button type="button" onClick={() => editingItem && openLifecycleTransition('gifted', [editingItem.id], true)} disabled={!editingItem || editSaving} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+                      <Gift size={16}/>{t('ΕΚΔΟΣΗ ΑΓΑΘΩΝ')}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
             {editError && <div role="alert" aria-live="polite" className="mx-6 mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{translateMessage(editError)}</div>}
             <div className="flex justify-end gap-2 border-t border-gray-200 px-6 py-4">
@@ -1765,6 +1798,49 @@ export default function Inventory() {
           </form>
         </div>
       )}
+      {transitionTarget && (
+        <LifecycleTransitionDialog
+          targetStatus={transitionTarget}
+          itemIds={transitionItemIds}
+          fromEdit={transitionFromEdit}
+          onClose={() => {
+            if (!transitionTarget) return;
+            setTransitionTarget(null);
+            setTransitionItemIds([]);
+            setTransitionFromEdit(false);
+          }}
+          onSuccess={async () => {
+            const closeEdit = transitionFromEdit;
+            setTransitionTarget(null);
+            setTransitionItemIds([]);
+            setTransitionFromEdit(false);
+            setSelectedItemIds([]);
+            setPage(1);
+            if (closeEdit) {
+              setEditOpen(false);
+              setEditingItem(null);
+            }
+            await loadInventory();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+export default function Inventory({
+  section = 'active',
+  role = 'viewer',
+}: {
+  section?: 'active' | InventoryLifecycleSection;
+  role?: string;
+}) {
+  if (section === 'active') return <ActiveInventory />;
+  return (
+    <InventoryLifecycle
+      key={section}
+      section={section}
+      canManageInventory={['administrator', 'inventory_manager'].includes(role)}
+    />
   );
 }
