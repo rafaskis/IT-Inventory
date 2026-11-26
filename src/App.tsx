@@ -54,9 +54,9 @@ type InventorySection = 'active' | 'pending_scrap' | 'scrapped' | 'gifted'
 
 const inventorySubsections: { key: InventorySection; label: string; icon: typeof Package }[] = [
   { key: 'active', label: 'Main Inventory', icon: Package },
-  { key: 'pending_scrap', label: 'Προς απόσυρση', icon: Archive },
-  { key: 'scrapped', label: 'Απόσυρση', icon: Trash2 },
-  { key: 'gifted', label: 'Έκδοση αγαθών', icon: Gift },
+  { key: 'pending_scrap', label: 'To be scrapped', icon: Archive },
+  { key: 'scrapped', label: 'Scrapped', icon: Trash2 },
+  { key: 'gifted', label: 'Goods issued to other services', icon: Gift },
 ]
 
 function Dashboard({
@@ -534,7 +534,7 @@ function Dashboard({
                     <ChevronRight size={20} className="text-amber-500 transition-transform group-hover:translate-x-1" />
                   </div>
                   <div className="relative">
-                    <p className="text-sm font-semibold tracking-wide text-amber-800">{t('Προς απόσυρση')}</p>
+                    <p className="text-sm font-semibold tracking-wide text-amber-800">{t('To be scrapped')}</p>
                     <p className="mt-2 text-5xl font-bold tracking-tight text-slate-900 tabular-nums">{dashboardLoading ? '—' : formatNumber(pendingScrapCount, language)}</p>
                     <p className="mt-3 text-xs font-medium text-slate-500">{t('Items awaiting scrapping')}</p>
                   </div>
@@ -551,7 +551,7 @@ function Dashboard({
                     <ChevronRight size={20} className="text-rose-500 transition-transform group-hover:translate-x-1" />
                   </div>
                   <div className="relative">
-                    <p className="text-sm font-semibold tracking-wide text-rose-800">{t('Απόσυρση')}</p>
+                    <p className="text-sm font-semibold tracking-wide text-rose-800">{t('Scrapped')}</p>
                     <p className="mt-2 text-5xl font-bold tracking-tight text-slate-900 tabular-nums">{dashboardLoading ? '—' : formatNumber(scrappedCount, language)}</p>
                     <p className="mt-3 text-xs font-medium text-slate-500">{t('Scrapped items')}</p>
                   </div>
@@ -568,9 +568,9 @@ function Dashboard({
                     <ChevronRight size={20} className="text-sky-500 transition-transform group-hover:translate-x-1" />
                   </div>
                   <div className="relative">
-                    <p className="text-sm font-semibold tracking-wide text-sky-800">{t('Έκδοση αγαθών')}</p>
+                    <p className="text-sm font-semibold tracking-wide text-sky-800">{t('Goods issued to other services')}</p>
                     <p className="mt-2 text-5xl font-bold tracking-tight text-slate-900 tabular-nums">{dashboardLoading ? '—' : formatNumber(giftedCount, language)}</p>
-                    <p className="mt-3 text-xs font-medium text-slate-500">{t('Items issued as gifts')}</p>
+                    <p className="mt-3 text-xs font-medium text-slate-500">{t('Items issued to other services')}</p>
                   </div>
                 </button>
               </div>

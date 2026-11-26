@@ -11,12 +11,20 @@ import {
   Search,
   Package,
   Users,
+  FileDown,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useLanguage } from '../i18n/LanguageProvider';
 import { normalizeSearchText } from '../lib/searchText';
 
 type LocationApiRow = Record<string, unknown>;
+
+function escapePdfHtml(value: string | number) {
+  const entities: Record<string, string> = {
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  };
+  return String(value).replace(/[&<>"']/g, (character) => entities[character] ?? character);
+}
 
 type Location = {
   id: string;
@@ -274,6 +282,53 @@ export default function Locations() {
     );
   });
 
+  const exportLocationsPdf = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      setError(t('The PDF window was blocked. Allow pop-ups for this site and try again.'));
+      return;
+    }
+
+    // The list endpoint returns locations alphabetically; preserve that exact
+    // order and export the complete list, independent of the current search.
+    const allLocations = [...locations];
+    const rows = allLocations.map((location, index) => `
+      <tr>
+        <td class="number">${index + 1}</td>
+        <td>${escapePdfHtml(location.name)}</td>
+        <td class="number">${location.inventory_count}</td>
+        <td class="number">${location.employee_count}</td>
+      </tr>`).join('');
+    const exportedAt = new Intl.DateTimeFormat('en-GB', {
+      day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Nicosia',
+    }).format(new Date());
+
+    printWindow.document.open();
+    printWindow.document.write(`<!doctype html>
+      <html><head><meta charset="utf-8"><title>${escapePdfHtml(t('Locations'))}</title>
+      <style>
+        @page { size: A4 portrait; margin: 15mm 12mm 18mm; }
+        @page { @bottom-left { content: "${escapePdfHtml(t('Export date: {date}', { date: exportedAt }))}"; font: 9px Arial,sans-serif; color:#666; } @bottom-right { content: "${escapePdfHtml(t('Page'))} " counter(page) " ${escapePdfHtml(t('of'))} " counter(pages); font:9px Arial,sans-serif;color:#666; } }
+        * { box-sizing:border-box; } body { font-family:Arial,Helvetica,sans-serif;color:#222;font-size:11px; }
+        h1 { font-size:20px;margin:0 0 5px; } .meta { color:#666;font-size:10px;margin-bottom:14px; }
+        table { width:100%;border-collapse:collapse;font-size:10.5px; } thead { display:table-header-group; }
+        th,td { border:1px solid #b9c0c8;padding:6px 7px;text-align:left; } th { background:#e9edf2;font-weight:700; }
+        tbody tr:nth-child(even) { background:#f7f8fa; } tr { break-inside:avoid;page-break-inside:avoid; }
+        td.number { text-align:center;white-space:nowrap; }
+      </style></head><body>
+      <h1>${escapePdfHtml(t('Locations'))}</h1>
+      <p class="meta">${escapePdfHtml(t('{count} locations registered', { count: allLocations.length }))}</p>
+      <table><thead><tr>
+        <th>${escapePdfHtml(t('No.'))}</th>
+        <th>${escapePdfHtml(t('Location'))}</th>
+<th>${escapePdfHtml(t('Equipment'))}</th>
+<th>${escapePdfHtml(t('Employees'))}</th>
+      </tr></thead><tbody>${rows}</tbody></table>
+      <script>window.addEventListener('load',function(){window.focus();setTimeout(function(){window.print();},300);});</${'script'}>
+      </body></html>`);
+    printWindow.document.close();
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -308,14 +363,24 @@ export default function Locations() {
             </p>
           </div>
 
-          <button
-            onClick={() => void loadLocations()}
-            disabled={loading || saving}
-            className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            <RefreshCw size={15} />
-            {t('Refresh')}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={exportLocationsPdf}
+              disabled={loading || locations.length === 0}
+              className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              <FileDown size={15} />
+              {t('Export locations (PDF)')}
+            </button>
+            <button
+              onClick={() => void loadLocations()}
+              disabled={loading || saving}
+              className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              <RefreshCw size={15} />
+              {t('Refresh')}
+            </button>
+          </div>
         </div>
 
         {isAdministrator && <div className="flex flex-col gap-2 border-b border-gray-200 bg-gray-50 p-4">

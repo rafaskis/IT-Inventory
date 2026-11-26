@@ -195,7 +195,8 @@ function buildInventoryPrintHtml(
   rows: InventoryItem[],
   columns: ColumnKey[],
   title: string,
-  signatureEmployee: string | undefined,
+  issuerEmployee: string | undefined,
+  signeeEmployee: string | undefined,
   translate: (key: string, values?: Record<string, string | number>) => string,
   language: Language,
 ) {
@@ -207,14 +208,23 @@ function buildInventoryPrintHtml(
   // Put the signature block in the table footer so print pagination accounts for
   // its height. The blank signing area stays above the line; the selected employee
   // name is printed below it, with the same bold formatting as before.
-  const debitFooter = signatureEmployee ? `
+  const debitFooter = issuerEmployee || signeeEmployee ? `
         <tfoot>
           <tr class="signature-row">
             <td class="signature-cell" colspan="${definitions.length + 1}">
               <div class="signature-footer">
-                <div class="signature-space"></div>
-                <div class="signature-line"></div>
-                <div class="signature-name">${escapeHtml(signatureEmployee)}</div>
+                <div class="signature-block">
+                  <div class="signature-space"></div>
+                  <div class="signature-line"></div>
+                  <div class="signature-name">${escapeHtml(issuerEmployee ?? '')}</div>
+                  <div class="signature-role">${escapeHtml(translate('Issuer'))}</div>
+                </div>
+                <div class="signature-block">
+                  <div class="signature-space"></div>
+                  <div class="signature-line"></div>
+                  <div class="signature-name">${escapeHtml(signeeEmployee ?? '')}</div>
+                  <div class="signature-role">${escapeHtml(translate('Signee'))}</div>
+                </div>
               </div>
             </td>
           </tr>
@@ -237,10 +247,12 @@ function buildInventoryPrintHtml(
       tbody tr:nth-child(even) { background: #f7f8fa; }
       tfoot tr.signature-row { break-inside: avoid; page-break-inside: avoid; }
       tfoot td.signature-cell { border: 0; padding: 8mm 0 2mm; }
-      .signature-footer { width: 62mm; margin-left: auto; text-align: center; break-inside: avoid; page-break-inside: avoid; }
+      .signature-footer { width: 100%; display: flex; justify-content: space-between; gap: 28mm; break-inside: avoid; page-break-inside: avoid; }
+      .signature-block { width: 62mm; text-align: center; break-inside: avoid; page-break-inside: avoid; }
       .signature-space { height: 18mm; }
       .signature-line { border-top: 1px solid #222; width: 100%; }
-      .signature-name { margin-top: 4px; font-size: 12px; font-weight: 700; }
+      .signature-name { margin-top: 4px; font-size: 12px; font-weight: 700; min-height: 14px; }
+      .signature-role { margin-top: 2px; font-size: 10px; color: #555; }
       @media screen { body { margin: 18px; } }
     </style></head><body>
       <h1>${escapeHtml(title)}</h1>
@@ -410,9 +422,11 @@ function ActiveInventory() {
   });
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
   const [exportType, setExportType] = useState<'standard' | 'debit' | null>(null);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exportColumns, setExportColumns] = useState<ColumnKey[]>(DEFAULT_VISIBLE_COLUMNS);
   const [exportEmployees, setExportEmployees] = useState<Employee[]>([]);
   const [exportEmployeeId, setExportEmployeeId] = useState('');
+  const [exportIssuerId, setExportIssuerId] = useState('');
   const [exportLoading, setExportLoading] = useState(false);
   const [exportError, setExportError] = useState('');
 
@@ -1103,7 +1117,9 @@ function ActiveInventory() {
     setExportType(type);
     setExportColumns(type === 'debit' ? VOUCHER_PDF_DEFAULT_COLUMNS : STANDARD_PDF_DEFAULT_COLUMNS);
     setExportEmployeeId('');
+    setExportIssuerId('');
     setExportError('');
+    setExportMenuOpen(false);
     if (type === 'debit') {
       const { data, error: employeeError } = await supabase
         .from('employees')
@@ -1121,10 +1137,16 @@ function ActiveInventory() {
   const generateInventoryPdf = async () => {
     if (!exportType) return;
     if (exportColumns.length === 0) { setExportError('Select at least one column to include.'); return; }
-    const selectedEmployee = exportType === 'debit'
+    const selectedSignee = exportType === 'debit'
       ? exportEmployees.find((employee) => String(employee.id) === exportEmployeeId)
       : undefined;
-    if (exportType === 'debit' && !selectedEmployee) { setExportError('Select an employee to export an issue voucher.'); return; }
+    const selectedIssuer = exportType === 'debit'
+      ? exportEmployees.find((employee) => String(employee.id) === exportIssuerId)
+      : undefined;
+    if (exportType === 'debit' && (!selectedSignee || !selectedIssuer)) {
+      setExportError('Select both an issuer and a signee to export an issue voucher.');
+      return;
+    }
 
     // Open the print window immediately from the user click so the browser does not block it.
     const printWindow = window.open('', '_blank');
@@ -1157,9 +1179,17 @@ function ActiveInventory() {
         allRows.push(...(data.items as InventoryItem[]));
         targetPages = Math.max(1, Number(data.total_pages ?? 1));
       }
-      const title = exportType === 'debit' ? `${t('Issue Voucher')} - ${selectedEmployee?.full_name ?? ''}` : t('Inventory');
+      const title = exportType === 'debit' ? `${t('Issue Voucher')} - ${selectedSignee?.full_name ?? ''}` : t('Inventory');
       printWindow.document.open();
-      printWindow.document.write(buildInventoryPrintHtml(allRows, exportColumns, title, selectedEmployee?.full_name, t, language));
+      printWindow.document.write(buildInventoryPrintHtml(
+        allRows,
+        exportColumns,
+        title,
+        selectedIssuer?.full_name,
+        selectedSignee?.full_name,
+        t,
+        language,
+      ));
       printWindow.document.close();
       setExportType(null);
     } catch (caught) {
@@ -1183,12 +1213,35 @@ function ActiveInventory() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => void openExportDialog('standard')} disabled={total === 0} className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
-            <FileDown size={16} /> {t('Export inventory (PDF)')}
-          </button>
-          <button type="button" onClick={() => void openExportDialog('debit')} disabled={total === 0} className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
-            <FileDown size={16} /> {t('Export issue voucher (PDF)')}
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setExportMenuOpen((open) => !open)}
+              disabled={total === 0}
+              aria-expanded={exportMenuOpen}
+              className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              <FileDown size={16} /> {t('Export')} <ChevronDown size={15} className={`transition-transform ${exportMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {exportMenuOpen && (
+              <div className="absolute right-0 z-40 mt-2 w-60 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                <button
+                  type="button"
+                  onClick={() => void openExportDialog('standard')}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  <FileDown size={15} /> {t('Export inventory (PDF)')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void openExportDialog('debit')}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  <FileDown size={15} /> {t('Export issue voucher (PDF)')}
+                </button>
+              </div>
+            )}
+          </div>
           {canManageInventory && (
             <button type="button" onClick={() => void openCreateForm()} className="flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
               <Plus size={16} /> {t('Add Item')}
@@ -1577,12 +1630,31 @@ function ActiveInventory() {
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {COLUMNS.map(column => <label key={column.key} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50"><input type="checkbox" checked={exportColumns.includes(column.key)} onChange={event => setExportColumns(current => event.target.checked ? [...current, column.key] : current.filter(key => key !== column.key))} className="rounded border-gray-300 text-blue-600"/>{t(column.label)}</label>)}
               </div>
-              {exportType === 'debit' && <div><label className="mb-1 block text-sm font-medium text-gray-700">{t('Employee for signature *')}</label><select value={exportEmployeeId} onChange={event => setExportEmployeeId(event.target.value)} className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"><option value="">{t('Select employee')}</option>{exportEmployees.map(employee => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select><p className="mt-1 text-xs text-gray-500">{t('The selected employee will appear in the signature area on every page, even if they are not assigned to every listed item.')}</p></div>}
+              {exportType === 'debit' && (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">{t('Issuer *')}</label>
+                    <select value={exportIssuerId} onChange={event => setExportIssuerId(event.target.value)} className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm">
+                      <option value="">{t('Select employee')}</option>
+                      {exportEmployees.map(employee => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500">{t('The issuer will appear on the left side of the voucher.')}</p>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">{t('Signee *')}</label>
+                    <select value={exportEmployeeId} onChange={event => setExportEmployeeId(event.target.value)} className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm">
+                      <option value="">{t('Select employee')}</option>
+                      {exportEmployees.map(employee => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500">{t('The signee will appear on the right side of the voucher.')}</p>
+                  </div>
+                </div>
+              )}
               {exportError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{translateMessage(exportError)}</p>}
             </div>
             <div className="flex justify-end gap-2 border-t border-gray-200 px-6 py-4">
               <button type="button" onClick={() => setExportType(null)} disabled={exportLoading} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 disabled:opacity-50">{t('Cancel')}</button>
-              <button type="button" onClick={() => void generateInventoryPdf()} disabled={exportLoading || (exportType === 'debit' && exportEmployees.length === 0)} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"><FileDown size={16}/>{exportLoading ? t('Preparing…') : exportType === 'debit' ? t('Generate issue voucher') : t('Generate PDF')}</button>
+              <button type="button" onClick={() => void generateInventoryPdf()} disabled={exportLoading || (exportType === 'debit' && (exportEmployees.length === 0 || !exportIssuerId || !exportEmployeeId))} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"><FileDown size={16}/>{exportLoading ? t('Preparing…') : exportType === 'debit' ? t('Generate issue voucher') : t('Generate PDF')}</button>
             </div>
           </div>
         </div>

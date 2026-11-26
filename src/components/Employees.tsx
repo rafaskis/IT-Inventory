@@ -11,12 +11,20 @@ import {
   AlertCircle,
   Search,
   Package,
+  FileDown,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useLanguage } from '../i18n/LanguageProvider';
 import { normalizeSearchText } from '../lib/searchText';
 
 type EmployeeApiRow = Record<string, unknown>;
+
+function escapePdfHtml(value: string | number) {
+  const entities: Record<string, string> = {
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  };
+  return String(value).replace(/[&<>"']/g, (character) => entities[character] ?? character);
+}
 
 type Employee = {
   id: string;
@@ -37,7 +45,7 @@ export default function Employees() {
 
   const [newName, setNewName] = useState('');
   const [search, setSearch] = useState('');
-  const [sortBy, setSortBy] = useState<'name' | 'id'>('name');
+  const [sortBy, setSortBy] = useState<'name_asc' | 'name_desc' | 'id_asc' | 'id_desc'>('name_asc');
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
@@ -242,12 +250,63 @@ export default function Employees() {
       employee.id.includes(search.trim()),
     )
     .sort((a, b) => {
-      if (sortBy === 'id') {
-        return Number(a.id) - Number(b.id);
+      if (sortBy.startsWith('id_')) {
+        const comparison = Number(a.id) - Number(b.id);
+        return sortBy === 'id_desc' ? -comparison : comparison;
       }
-      return a.full_name.localeCompare(b.full_name, undefined, { sensitivity: 'base' })
-        || Number(a.id) - Number(b.id);
+      const nameComparison = a.full_name.localeCompare(b.full_name, undefined, { sensitivity: 'base' });
+      if (nameComparison !== 0) return sortBy === 'name_desc' ? -nameComparison : nameComparison;
+      return Number(a.id) - Number(b.id);
     });
+
+  const exportEmployeesPdf = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      setError(t('The PDF window was blocked. Allow pop-ups for this site and try again.'));
+      return;
+    }
+
+    // Export the complete employee list, independent of the current search and sort selection.
+    const allEmployees = [...employees].sort((a, b) =>
+      a.full_name.localeCompare(b.full_name, undefined, { sensitivity: 'base' })
+      || Number(a.id) - Number(b.id),
+    );
+    const rows = allEmployees.map((employee, index) => `
+      <tr>
+        <td class="number">${index + 1}</td>
+        <td>${escapePdfHtml(employee.id)}</td>
+        <td>${escapePdfHtml(employee.full_name)}</td>
+        <td class="number">${employee.inventory_count}</td>
+      </tr>`).join('');
+    const exportedAt = new Intl.DateTimeFormat('en-GB', {
+      day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Nicosia',
+    }).format(new Date());
+
+    printWindow.document.open();
+    printWindow.document.write(`<!doctype html>
+      <html><head><meta charset="utf-8"><title>${escapePdfHtml(t('Employees'))}</title>
+      <style>
+        @page { size: A4 portrait; margin: 15mm 12mm 18mm; }
+        @page { @bottom-left { content: "${escapePdfHtml(t('Export date: {date}', { date: exportedAt }))}"; font: 9px Arial,sans-serif; color:#666; } @bottom-right { content: "${escapePdfHtml(t('Page'))} " counter(page) " ${escapePdfHtml(t('of'))} " counter(pages); font:9px Arial,sans-serif;color:#666; } }
+        * { box-sizing:border-box; } body { font-family:Arial,Helvetica,sans-serif;color:#222;font-size:11px; }
+        h1 { font-size:20px;margin:0 0 5px; } .meta { color:#666;font-size:10px;margin-bottom:14px; }
+        table { width:100%;border-collapse:collapse;font-size:10.5px; } thead { display:table-header-group; }
+        th,td { border:1px solid #b9c0c8;padding:6px 7px;text-align:left; } th { background:#e9edf2;font-weight:700; }
+        tbody tr:nth-child(even) { background:#f7f8fa; } tr { break-inside:avoid;page-break-inside:avoid; }
+        td.number { text-align:center;white-space:nowrap; }
+      </style></head><body>
+      <h1>${escapePdfHtml(t('Employees'))}</h1>
+      <p class="meta">${escapePdfHtml(t('{count} employees registered', { count: allEmployees.length }))}</p>
+      <table><thead><tr>
+        <th>${escapePdfHtml(t('No.'))}</th>
+        <th>${escapePdfHtml(t('Employee ID'))}</th>
+        <th>${escapePdfHtml(t('Employee name'))}</th>
+        <th>${escapePdfHtml(t('Assigned inventory'))}</th>
+      </tr></thead><tbody>${rows}</tbody></table>
+      <script>window.addEventListener('load',function(){window.focus();setTimeout(function(){window.print();},300);});</${'script'}>
+      </body></html>`);
+    printWindow.document.close();
+  };
 
   return (
     <div className="space-y-6">
@@ -280,14 +339,24 @@ export default function Employees() {
             </p>
           </div>
 
-          <button
-            onClick={() => void loadEmployees()}
-            disabled={loading || saving}
-            className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            <RefreshCw size={15} />
-            {t('Refresh')}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={exportEmployeesPdf}
+              disabled={loading || employees.length === 0}
+              className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              <FileDown size={15} />
+              {t('Export employees (PDF)')}
+            </button>
+            <button
+              onClick={() => void loadEmployees()}
+              disabled={loading || saving}
+              className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              <RefreshCw size={15} />
+              {t('Refresh')}
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-col gap-2 border-b border-gray-200 bg-gray-50 p-4 sm:flex-row">
@@ -333,11 +402,13 @@ export default function Employees() {
             <select
               id="employee-sort"
               value={sortBy}
-              onChange={(event) => setSortBy(event.target.value as 'name' | 'id')}
+              onChange={(event) => setSortBy(event.target.value as typeof sortBy)}
               className="min-w-0 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 outline-none focus:border-blue-500"
             >
-              <option value="name">{t('Name (A–Z)')}</option>
-              <option value="id">{t('Employee ID (ascending)')}</option>
+              <option value="name_asc">{t('Name (A–Z)')}</option>
+              <option value="name_desc">{t('Name (Z–A)')}</option>
+              <option value="id_asc">{t('Employee ID (ascending)')}</option>
+              <option value="id_desc">{t('Employee ID (descending)')}</option>
             </select>
           </div>
         </div>

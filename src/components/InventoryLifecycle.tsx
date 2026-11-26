@@ -109,15 +109,15 @@ function display(value: string | number | null | undefined) {
 }
 
 function lifecycleTitle(section: InventoryLifecycleSection, t: (key: string) => string) {
-  if (section === 'pending_scrap') return t('Προς απόσυρση')
-  if (section === 'scrapped') return t('Απόσυρση')
-  return t('Έκδοση αγαθών')
+  if (section === 'pending_scrap') return t('To be scrapped')
+  if (section === 'scrapped') return t('Scrapped')
+  return t('Goods issued to other services')
 }
 
 function lifecycleDescription(section: InventoryLifecycleSection, t: (key: string) => string) {
   if (section === 'pending_scrap') return t('Items awaiting final scrapping. Employee, Location, PC Name, IP and SOCKET have been cleared.')
   if (section === 'scrapped') return t('Items that have completed the final scrapping procedure. These records are read-only.')
-  return t('Items issued as gifts to another service. These records are read-only.')
+  return t('Items issued to other services. These records are read-only.')
 }
 
 function dateCell(value: string | null, language: 'en' | 'el') {
