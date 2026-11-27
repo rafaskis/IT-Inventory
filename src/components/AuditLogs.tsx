@@ -51,6 +51,8 @@ const ACTION_LABELS: Record<string, string> = {
   employee_deleted: 'Employee deleted',
   employee_assigned: 'Employee assigned',
   employee_unassigned: 'Employee unassigned',
+  equipment_assigned: 'Equipment assigned',
+  equipment_removed: 'Equipment removed',
   location_created: 'Location created',
   location_updated: 'Location updated',
   location_deleted: 'Location deleted',
@@ -112,17 +114,6 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
   service_name: 'ΥΠΗΡΕΣΙΑ',
 };
 
-function downloadText(filename: string, content: string) {
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-}
 
 function catalogueTypeLabel(type: unknown, t: (key: string, values?: Record<string, string | number>) => string) {
   if (typeof type !== 'string') return t('Catalogue');
@@ -213,6 +204,7 @@ export default function AuditLogs({ role }: { role: string }) {
   const [total, setTotal] = useState(0);
   const [expanded, setExpanded] = useState<string | number | null>(null);
   const [itemCode, setItemCode] = useState('');
+  const [employeeId, setEmployeeId] = useState('');
   const [exporting, setExporting] = useState(false);
 
   const isAdmin = role === 'administrator';
@@ -267,11 +259,24 @@ export default function AuditLogs({ role }: { role: string }) {
 
   const filteredEvents = useMemo(() => {
     if (!search) return events;
-    return events.filter((event) => [
-      event.entity_id, event.action, event.actor_username,
-      JSON.stringify(event.details ?? {}), JSON.stringify(event.changes ?? {}),
-    ].join(' ').toLocaleLowerCase(language === 'el' ? 'el-CY' : 'en-GB').includes(search));
-  }, [events, search, language]);
+    return events.filter((event) => {
+      const entityId = String(event.entity_id ?? '');
+      if (category === 'inventory_item') return [entityId, String(event.details?.item_code ?? '')].join(' ').toLocaleLowerCase(language === 'el' ? 'el-CY' : 'en-GB').includes(search);
+      if (category === 'employee' || category === 'location') {
+        const searchableValues = [entityId, String((event as AuditEvent & { entity_name?: string }).entity_name ?? '')];
+        return searchableValues.join(' ').toLocaleLowerCase(language === 'el' ? 'el-CY' : 'en-GB').includes(search);
+      }
+      return [entityId, String(event.details?.item_code ?? '')].join(' ').toLocaleLowerCase(language === 'el' ? 'el-CY' : 'en-GB').includes(search);
+    });
+  }, [events, search, language, category]);
+
+  const searchPlaceholder = category === 'inventory_item'
+    ? t('Search by Item ID...')
+    : category === 'employee'
+      ? t('Search by Employee Name or ID...')
+      : category === 'location'
+        ? t('Search by Location Name or ID...')
+        : t("Search this page's audit events…");
 
   const exportItemHistory = async () => {
     const code = itemCode.trim().toUpperCase();
@@ -285,27 +290,77 @@ export default function AuditLogs({ role }: { role: string }) {
       body: { action: 'item_history', item_code: code },
     });
     if (requestError || !Array.isArray(data?.events)) {
-      setError(data?.error || requestError?.message || t('Unable to export item history.'));
+      let message = data?.error || requestError?.message || t('Unable to export item history.');
+      const context = requestError?.context;
+      if (!data?.error && context && typeof context.clone === 'function') {
+        try {
+          const body = await context.clone().json();
+          message = body?.error || body?.message || message;
+        } catch { /* Keep the original function error. */ }
+      }
+      setError(message);
       setExporting(false);
       return;
     }
-    const lines = [
-      `${t('Inventory item audit history')}: ${code}`,
-      `${t('Exported')}: ${formatDateTime(new Date(), language)}`,
-      `${t('Events')}: ${data.events.length}`,
-      '',
-    ];
-    for (const event of data.events as AuditEvent[]) {
-      lines.push(
-        `[${formatDateTime(event.created_at, language)}] ${eventTitle(event, t)}`,
-        `${t('Actor')}: ${event.actor_username || t('Unknown user')}`,
-        `${t('Item Code')}: ${code}`,
-        `${t('Changes')}: ${JSON.stringify(localizeAuditJson(event.changes ?? {}, t), null, 2)}`,
-        `${t('Additional details')}: ${JSON.stringify(localizeAuditJson(event.details ?? {}, t), null, 2)}`,
-        '------------------------------------------------------------',
-      );
+    const history = data.events as AuditEvent[];
+    const itemDescription = typeof data.item_description === 'string' ? data.item_description : '';
+    const htmlEntities: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, (character) => htmlEntities[character] ?? character);
+    const rows = history.map((event) => {
+      const changes = localizeAuditJson(event.changes ?? {}, t);
+      const changeText = Object.entries(changes as Record<string, unknown>).map(([key, value]) => {
+        if (value && typeof value === 'object' && ('old' in value || 'new' in value)) {
+          const pair = value as { old?: unknown; new?: unknown };
+          return `${t(key)}: ${JSON.stringify(pair.old ?? '—')} → ${JSON.stringify(pair.new ?? '—')}`;
+        }
+        return `${t(key)}: ${value && typeof value === 'object' ? JSON.stringify(value) : String(value ?? '—')}`;
+      }).join('\n') || '—';
+      return `<tr><td>${escape(formatDateTime(event.created_at, language))}</td><td>${escape(eventTitle(event, t))}</td><td>${escape(event.actor_username || t('Unknown user'))}</td><td>${escape(changeText).replace(/\n/g, '<br>')}</td></tr>`;
+    }).join('');
+    const exportedAt = formatDateTime(new Date(), language);
+    const win = window.open('', '_blank', 'width=1100,height=800');
+    if (!win) { setError(t('The PDF window was blocked. Allow pop-ups for this site and try again.')); setExporting(false); return; }
+    win.document.write(`<!doctype html><html lang="${language}"><head><meta charset="utf-8"><title>${escape(code)} - ${escape(t('Audit History'))}</title><style>@page{size:A4 landscape;margin:16mm 12mm 18mm;@bottom-right{content:'MJPO Inventory · ' counter(page) ' / ' counter(pages);font:9px Arial,sans-serif;color:#64748b}}body{font:10px Arial,sans-serif;color:#1e293b}header{border-bottom:3px solid #1d4ed8;padding-bottom:12px;margin-bottom:18px}h1{font-size:20px;margin:0 0 6px;color:#0f172a}.brand{font-size:11px;font-weight:bold;color:#1d4ed8;letter-spacing:1px}.meta{color:#475569;font-size:10px}table{width:100%;border-collapse:collapse}th{background:#1e3a8a;color:white;text-align:left;padding:8px}td{border-bottom:1px solid #cbd5e1;padding:7px;vertical-align:top;white-space:normal}tr:nth-child(even){background:#f8fafc}thead{display:table-header-group}tr{break-inside:avoid}</style></head><body><header><div class="brand">MJPO INVENTORY</div><h1>${escape(t('Inventory item audit history'))}</h1><div class="meta">${escape(t('Item Code'))}: <b>${escape(code)}</b>${itemDescription ? ` &nbsp; | &nbsp; ${escape(t('Description'))}: ${escape(itemDescription)}` : ''} &nbsp; | &nbsp; ${escape(t('Exported'))}: ${escape(exportedAt)} &nbsp; | &nbsp; ${escape(t('Events'))}: ${history.length}</div></header><table><thead><tr><th>${escape(t('Timestamp'))}</th><th>${escape(t('Action'))}</th><th>${escape(t('Audit user'))}</th><th>${escape(t('Changes'))}</th></tr></thead><tbody>${rows}</tbody></table><script>window.onload=()=>{window.print()}</script></body></html>`);
+    win.document.close();
+    setExporting(false);
+  };
+
+  const exportEmployeeHistory = async () => {
+    const id = employeeId.trim();
+    if (!/^\d+$/.test(id)) {
+      setError(t('Enter an Employee ID to export the employee history.'));
+      return;
     }
-    downloadText(`${code}-audit-history.txt`, lines.join('\r\n'));
+    setExporting(true);
+    setError('');
+    const { data, error: requestError } = await supabase.functions.invoke('manage-audit', {
+      body: { action: 'employee_history', employee_id: id },
+    });
+    if (requestError || !Array.isArray(data?.events)) {
+      setError(data?.error || requestError?.message || t('Unable to export employee history.'));
+      setExporting(false);
+      return;
+    }
+    const history = data.events as AuditEvent[];
+    const employeeName = String(data.employee_name ?? '');
+    const htmlEntities: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, (character) => htmlEntities[character] ?? character);
+    const rows = history.map((event) => {
+      const changes = localizeAuditJson(event.changes ?? {}, t);
+      const changeText = Object.entries(changes as Record<string, unknown>).map(([key, value]) => {
+        if (value && typeof value === 'object' && ('old' in value || 'new' in value)) {
+          const pair = value as { old?: unknown; new?: unknown };
+          return `${t(key)}: ${JSON.stringify(pair.old ?? '—')} → ${JSON.stringify(pair.new ?? '—')}`;
+        }
+        return `${t(key)}: ${value && typeof value === 'object' ? JSON.stringify(value) : String(value ?? '—')}`;
+      }).join('\n') || '—';
+      return `<tr><td>${escape(formatDateTime(event.created_at, language))}</td><td>${escape(eventTitle(event, t))}</td><td>${escape(event.actor_username || t('Unknown user'))}</td><td>${escape(changeText).replace(/\n/g, '<br>')}</td></tr>`;
+    }).join('');
+    const exportedAt = formatDateTime(new Date(), language);
+    const win = window.open('', '_blank', 'width=1100,height=800');
+    if (!win) { setError(t('The PDF window was blocked. Allow pop-ups for this site and try again.')); setExporting(false); return; }
+    win.document.write(`<!doctype html><html lang="${language}"><head><meta charset="utf-8"><title>${escape(employeeName)} - ${escape(t('Audit History'))}</title><style>@page{size:A4 landscape;margin:16mm 12mm 18mm;@bottom-right{content:'MJPO Inventory · ' counter(page) ' / ' counter(pages);font:9px Arial,sans-serif;color:#64748b}}body{font:10px Arial,sans-serif;color:#1e293b}header{border-bottom:3px solid #1d4ed8;padding-bottom:12px;margin-bottom:18px}h1{font-size:20px;margin:0 0 6px;color:#0f172a}.brand{font-size:11px;font-weight:bold;color:#1d4ed8;letter-spacing:1px}.meta{color:#475569;font-size:10px}table{width:100%;border-collapse:collapse}th{background:#1e3a8a;color:white;text-align:left;padding:8px}td{border-bottom:1px solid #cbd5e1;padding:7px;vertical-align:top;white-space:normal}tr:nth-child(even){background:#f8fafc}thead{display:table-header-group}tr{break-inside:avoid}</style></head><body><header><div class="brand">MJPO INVENTORY</div><h1>${escape(t('Employee audit history'))}</h1><div class="meta">${escape(t('Employee'))}: <b>${escape(employeeName)}</b> &nbsp; | &nbsp; ${escape(t('Employee ID'))}: <b>${escape(id)}</b> &nbsp; | &nbsp; ${escape(t('Exported'))}: ${escape(exportedAt)} &nbsp; | &nbsp; ${escape(t('Events'))}: ${history.length}</div></header><table><thead><tr><th>${escape(t('Timestamp'))}</th><th>${escape(t('Action'))}</th><th>${escape(t('Audit user'))}</th><th>${escape(t('Changes'))}</th></tr></thead><tbody>${rows}</tbody></table><script>window.onload=()=>{window.print()}</script></body></html>`);
+    win.document.close();
     setExporting(false);
   };
 
@@ -342,7 +397,19 @@ export default function AuditLogs({ role }: { role: string }) {
             <input value={itemCode} onChange={(event) => setItemCode(event.target.value)} placeholder={t('e.g. MJPO-000001')} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
           </div>
           <button onClick={() => void exportItemHistory()} disabled={exporting} className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:opacity-50">
-            <Download size={16} /> {exporting ? t('Preparing…') : t('Download TXT')}
+            <Download size={16} /> {exporting ? t('Preparing…') : t('Export PDF')}
+          </button>
+        </div>
+      )}
+
+      {category === 'employee' && (
+        <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-end">
+          <div className="flex-1">
+            <label className="mb-1 block text-sm font-medium text-slate-700">{t('Export one employee’s complete history')}</label>
+            <input value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} inputMode="numeric" placeholder={t('Enter Employee ID')} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+          </div>
+          <button onClick={() => void exportEmployeeHistory()} disabled={exporting} className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:opacity-50">
+            <Download size={16} /> {exporting ? t('Preparing…') : t('Export PDF')}
           </button>
         </div>
       )}
@@ -350,7 +417,7 @@ export default function AuditLogs({ role }: { role: string }) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full sm:max-w-md">
           <Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={t("Search this page's audit events…")} className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+          <input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={searchPlaceholder} className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
         </div>
         <p className="text-sm text-slate-500">{t('{count} events · Page {page} of {totalPages}', { count: total.toLocaleString(language === 'el' ? 'el-CY' : 'en-GB'), page, totalPages })}</p>
       </div>
@@ -372,8 +439,9 @@ export default function AuditLogs({ role }: { role: string }) {
               const open = expanded === event.id;
               const itemCodeValue = event.details?.item_code;
               const actor = event.actor_username || t('Unknown user');
+              const entityName = (event as AuditEvent & { entity_name?: string }).entity_name;
               const description = t('{entity} · ID: {id} · By {user}', {
-                entity: entityLabel(event, t), id: event.entity_id, user: actor,
+                entity: entityName ? `${entityLabel(event, t)}: ${entityName}` : entityLabel(event, t), id: event.entity_id, user: actor,
               });
               return (
                 <div key={event.id}>

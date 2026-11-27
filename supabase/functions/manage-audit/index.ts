@@ -75,24 +75,55 @@ Deno.serve(async (req) => {
   if (profileError || !profile || !profile.is_active) {
     return response({ error: 'An active application account is required.' }, 403);
   }
-  if (!['administrator', 'inventory_manager'].includes(profile.role)) {
-    return response({ error: 'Audit history access is restricted to administrators and inventory managers.' }, 403);
+  if (!['administrator', 'inventory_manager', 'viewer'].includes(profile.role)) {
+    return response({ error: 'Audit history access is not available for this account.' }, 403);
   }
 
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return response({ error: 'Invalid request body.' }, 400); }
 
   const action = String(body.action ?? 'list');
+  if (action === 'employee_history') {
+    const employeeId = String(body.employee_id ?? '').trim();
+    if (!/^\d+$/.test(employeeId)) return response({ error: 'Enter a valid Employee ID.' }, 400);
+    const { data: employee, error: employeeError } = await admin
+      .from('employees').select('id, full_name').eq('id', employeeId).maybeSingle();
+    if (employeeError) return response({ error: employeeError.message }, 400);
+    if (!employee) return response({ error: 'Employee not found.' }, 404);
+    const { data: events, error: eventsError } = await admin
+      .from('audit_events')
+      .select('id, entity_type, entity_id, action, actor_user_id, actor_username, changes, details, created_at')
+      .eq('entity_type', 'employee').eq('entity_id', employeeId)
+      .order('created_at', { ascending: true }).limit(5000);
+    if (eventsError) return response({ error: eventsError.message }, 400);
+    return response({ success: true, employee_id: employeeId, employee_name: employee.full_name, events: events ?? [] });
+  }
+
   if (action === 'item_history') {
     const itemCode = String(body.item_code ?? '').trim().toUpperCase();
-    if (!/^MJPO-\d{6,}$/.test(itemCode)) return response({ error: 'Enter a valid Item Code.' }, 400);
+    // The application generates item codes with the MJPO- prefix.
+    // Use a single validator; do not accept the obsolete ITEM- prefix.
+    if (!/^MJPO-\d{6,}$/.test(itemCode)) {
+      return response({ error: 'Enter a valid Item Code (for example, MJPO-000001).' }, 400);
+    }
     const { data: item, error: itemError } = await admin
       .from('inventory_items')
-      .select('id, item_code')
+      .select('id, item_code, item_type_id, brand_id, model_id, serial_number')
       .eq('item_code', itemCode)
       .maybeSingle();
-    if (itemError) return response({ error: itemError.message }, 400);
+    if (itemError) return response({ error: `Unable to load inventory item: ${itemError.message}` }, 400);
     if (!item) return response({ error: 'Inventory item not found.' }, 404);
+
+    const [typeResult, brandResult, modelResult] = await Promise.all([
+      admin.from('item_types').select('name').eq('id', item.item_type_id).maybeSingle(),
+      admin.from('brands').select('name').eq('id', item.brand_id).maybeSingle(),
+      admin.from('models').select('name').eq('id', item.model_id).maybeSingle(),
+    ]);
+    const catalogueError = typeResult.error || brandResult.error || modelResult.error;
+    if (catalogueError) {
+      return response({ error: `Unable to load item description: ${catalogueError.message}` }, 400);
+    }
+
     const { data: events, error: eventsError } = await admin
       .from('audit_events')
       .select('id, entity_type, entity_id, action, actor_user_id, actor_username, changes, details, created_at')
@@ -101,7 +132,11 @@ Deno.serve(async (req) => {
       .order('created_at', { ascending: true })
       .limit(5000);
     if (eventsError) return response({ error: eventsError.message }, 400);
-    return response({ success: true, item_code: item.item_code, events: events ?? [] });
+    const typeName = typeResult.data?.name ?? '';
+    const brandName = brandResult.data?.name ?? '';
+    const modelName = modelResult.data?.name ?? '';
+    const itemDescription = [typeName, brandName, modelName, item.serial_number].filter(Boolean).join(' · ');
+    return response({ success: true, item_code: item.item_code, item_description: itemDescription, events: events ?? [] });
   }
 
   if (action !== 'list') return response({ error: 'Unsupported audit action.' }, 400);
@@ -134,5 +169,28 @@ Deno.serve(async (req) => {
     .range(from, to);
 
   if (eventsError) return response({ error: eventsError.message }, 400);
-  return response({ success: true, events: events ?? [], total: count ?? 0, page, page_size: pageSize });
+  let enrichedEvents = events ?? [];
+  if (category === 'employee' || category === 'location') {
+    const ids = [...new Set(enrichedEvents.map((event) => event.entity_id).filter((id) => /^\d+$/.test(id)))];
+    if (ids.length) {
+      const table = category === 'employee' ? 'employees' : 'locations';
+      const nameColumn = category === 'employee' ? 'full_name' : 'name';
+      const { data: targets } = await admin.from(table).select(`id, ${nameColumn}`).in('id', ids);
+      const names = new Map((targets ?? []).map((target: Record<string, unknown>) => [String(target.id), String(target[nameColumn] ?? '')]));
+      enrichedEvents = enrichedEvents.map((event) => {
+        const changes = (event.changes ?? {}) as Record<string, unknown>;
+        const snapshotName = category === 'employee'
+          ? (() => {
+              const nameChange = changes.full_name as { old?: unknown; new?: unknown } | undefined;
+              return String(nameChange?.new ?? nameChange?.old ?? '');
+            })()
+          : (() => {
+              const locationChange = changes as { old?: { name?: unknown } | null; new?: { name?: unknown } | null };
+              return String(locationChange.new?.name ?? locationChange.old?.name ?? '');
+            })();
+        return { ...event, entity_name: names.get(event.entity_id) || snapshotName || null };
+      });
+    }
+  }
+  return response({ success: true, events: enrichedEvents, total: count ?? 0, page, page_size: pageSize });
 });

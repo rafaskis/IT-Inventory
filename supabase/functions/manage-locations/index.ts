@@ -143,13 +143,13 @@ Deno.serve(async (req) => {
     const actorId = user.id
     const actorUsername = profile.username
 
-    if (action !== 'list' && profile.role !== 'administrator') {
-      return jsonResponse({ error: 'Only administrators can create, modify or delete locations.' }, 403)
+    if (action !== 'list' && !['administrator', 'inventory_manager'].includes(profile.role)) {
+      return jsonResponse({ error: 'Location management access required.' }, 403)
     }
 
     if (action === 'preview_batch') {
-      if (profile.role !== 'administrator') {
-        return jsonResponse({ error: 'Only administrators can import locations.' }, 403)
+      if (!['administrator', 'inventory_manager'].includes(profile.role)) {
+        return jsonResponse({ error: 'Location import access required.' }, 403)
       }
       const { data, error } = await serviceClient
         .from('locations')
@@ -160,8 +160,8 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'batch_import') {
-      if (profile.role !== 'administrator') {
-        return jsonResponse({ error: 'Only administrators can import locations.' }, 403)
+      if (!['administrator', 'inventory_manager'].includes(profile.role)) {
+        return jsonResponse({ error: 'Location import access required.' }, 403)
       }
       if (body.acknowledged !== true) {
         return jsonResponse({ error: 'Please acknowledge that this import cannot be undone.' }, 400)

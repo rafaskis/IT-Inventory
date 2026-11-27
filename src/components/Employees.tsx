@@ -34,7 +34,8 @@ type Employee = {
   inventory_count: number;
 };
 
-export default function Employees() {
+export default function Employees({ role }: { role: string }) {
+  const canManage = role === 'administrator' || role === 'inventory_manager'
   const { t } = useLanguage()
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
@@ -359,7 +360,7 @@ export default function Employees() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-2 border-b border-gray-200 bg-gray-50 p-4 sm:flex-row">
+        {canManage && <div className="flex flex-col gap-2 border-b border-gray-200 bg-gray-50 p-4 sm:flex-row">
           <input
             type="text"
             value={newName}
@@ -381,7 +382,7 @@ export default function Employees() {
             <Plus size={16} />
             {t('Add employee')}
           </button>
-        </div>
+        </div>}
 
         <div className="flex flex-col gap-3 border-b border-gray-200 p-4 sm:flex-row sm:items-center">
           <div className="relative min-w-0 flex-1 sm:max-w-md">
@@ -434,7 +435,7 @@ export default function Employees() {
                 className="flex flex-wrap items-center justify-between gap-3 px-5 py-3"
               >
                 <div className="min-w-0 flex-1">
-                  {editingId === employee.id ? (
+                  {canManage && editingId === employee.id ? (
                     <input
                       type="text"
                       value={editingName}
@@ -468,7 +469,7 @@ export default function Employees() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {editingId === employee.id ? (
+                  {canManage && editingId === employee.id ? (
                     <>
                       <button
                         onClick={() => void renameEmployee(employee.id)}
@@ -501,6 +502,7 @@ export default function Employees() {
                         <span className={employee.inventory_count === 0 ? 'font-semibold text-red-700' : ''}>{employee.inventory_count}</span>
                       </div>
 
+                      {canManage && <>
                       <button
                         onClick={() => {
                           setEditingId(employee.id);
@@ -525,6 +527,7 @@ export default function Employees() {
                       >
                         <Trash2 size={16} />
                       </button>
+                      </>}
                     </>
                   )}
                 </div>

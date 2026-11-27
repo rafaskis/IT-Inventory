@@ -150,7 +150,7 @@ Deno.serve(async (req) => {
 
     const canRead = ['administrator', 'inventory_manager', 'viewer'].includes(profile.role)
     const canManage = ['administrator', 'inventory_manager'].includes(profile.role)
-    const isAdministrator = profile.role === 'administrator'
+    const canManageInventory = ['administrator', 'inventory_manager'].includes(profile.role)
 
     if (!canRead) {
       return jsonResponse({ error: 'You are not authorized to access inventory.' }, 403)
@@ -182,7 +182,7 @@ Deno.serve(async (req) => {
 
     // BATCH IMPORT PREVIEW — ADMINISTRATORS ONLY
     if (action === 'preview_batch') {
-      if (!isAdministrator) return jsonResponse({ error: 'Only administrators can import inventory.' }, 403)
+      if (!canManageInventory) return jsonResponse({ error: 'Inventory import access required.' }, 403)
       const [types, brands, models, locations] = await Promise.all([
         serviceClient.from('item_types').select('id, name').order('name'),
         serviceClient.from('brands').select('id, item_type_id, name').order('name'),
@@ -217,7 +217,7 @@ Deno.serve(async (req) => {
 
     // ATOMIC INVENTORY BATCH IMPORT — DATABASE REVALIDATES BEFORE WRITING
     if (action === 'batch_import') {
-      if (!isAdministrator) return jsonResponse({ error: 'Only administrators can import inventory.' }, 403)
+      if (!canManageInventory) return jsonResponse({ error: 'Inventory import access required.' }, 403)
       if (body.acknowledged !== true) return jsonResponse({ error: 'Explicit import acknowledgement is required.' }, 400)
       if (!Array.isArray(body.rows) || body.rows.length < 1 || body.rows.length > 1000) {
         return jsonResponse({ error: 'The import must contain between 1 and 1,000 inventory rows.' }, 400)
@@ -839,8 +839,8 @@ const inventorySelect = `
     }
 
     if (action === 'create') {
-      if (typeof body.new_location_name === 'string' && body.new_location_name.trim() && !isAdministrator) {
-        return jsonResponse({ error: 'Only administrators can create new locations.' }, 403)
+      if (typeof body.new_location_name === 'string' && body.new_location_name.trim() && !canManageInventory) {
+        return jsonResponse({ error: 'Location management access required.' }, 403)
       }
       if (!body.item || typeof body.item !== 'object' || Array.isArray(body.item)) {
         return jsonResponse({ error: 'Item details are required.' }, 400)
@@ -876,8 +876,8 @@ const inventorySelect = `
     }
 
     if (action === 'update_with_related') {
-      if (typeof body.new_location_name === 'string' && body.new_location_name.trim() && !isAdministrator) {
-        return jsonResponse({ error: 'Only administrators can create new locations.' }, 403)
+      if (typeof body.new_location_name === 'string' && body.new_location_name.trim() && !canManageInventory) {
+        return jsonResponse({ error: 'Location management access required.' }, 403)
       }
       if (!isPositiveInteger(body.id)) {
         return jsonResponse({ error: 'Invalid inventory item ID.' }, 400)

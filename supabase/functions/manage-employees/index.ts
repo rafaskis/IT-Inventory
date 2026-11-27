@@ -20,7 +20,7 @@ function rejectDisallowedOrigin(req: Request): Response | null {
   })
 }
 
-type UserRole = 'administrator' | 'inventory_manager'
+type UserRole = 'administrator' | 'inventory_manager' | 'viewer'
 
 type RequestBody = {
   action?: string
@@ -165,7 +165,7 @@ Deno.serve(async (req) => {
     actorError ||
     !actor ||
     !actor.is_active ||
-    !(['administrator', 'inventory_manager'] as UserRole[]).includes(
+    !(['administrator', 'inventory_manager', 'viewer'] as UserRole[]).includes(
       actor.role,
     )
   ) {
@@ -182,8 +182,8 @@ Deno.serve(async (req) => {
 
   // BATCH IMPORT PREVIEW — ADMINISTRATORS ONLY
   if (body.action === 'preview_batch') {
-    if (actor.role !== 'administrator') {
-      return response({ error: 'Only administrators can import employees.' }, 403)
+    if (!['administrator', 'inventory_manager'].includes(actor.role)) {
+      return response({ error: 'Employee import access required.' }, 403)
     }
 
     const { data: employees, error: listError } = await supabaseAdmin
@@ -201,8 +201,8 @@ Deno.serve(async (req) => {
 
   // ATOMIC BATCH IMPORT — FINAL VALIDATION IS PERFORMED IN THE DATABASE
   if (body.action === 'batch_import') {
-    if (actor.role !== 'administrator') {
-      return response({ error: 'Only administrators can import employees.' }, 403)
+    if (!['administrator', 'inventory_manager'].includes(actor.role)) {
+      return response({ error: 'Employee import access required.' }, 403)
     }
     if (body.acknowledged !== true) {
       return response({ error: 'Explicit import acknowledgement is required.' }, 400)

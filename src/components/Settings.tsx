@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Check, Settings, User, Monitor, KeyRound, Languages } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Check, User, Monitor, KeyRound, Languages, ChevronDown, Database } from 'lucide-react'
 import { useLanguage, type Language } from '../i18n/LanguageProvider'
 import { supabase } from '../lib/supabase'
 
@@ -14,10 +14,9 @@ export default function SettingsPage({ username, role, userId, preferredPage }: 
   const { language, setLanguage, t } = useLanguage()
   const availablePages = useMemo(() => {
     const pages = ['Dashboard', 'Inventory']
-    if (role === 'administrator' || role === 'inventory_manager') {
-      pages.push('Employees', 'Locations', 'Catalogues', 'Audit Logs')
-    }
-    if (role === 'administrator') pages.push('Accounts', 'Batch Import')
+    pages.push('Employees', 'Locations', 'Catalogues', 'Audit Logs')
+    if (role === 'administrator') pages.push('Accounts')
+    if (role === 'administrator' || role === 'inventory_manager') pages.push('Batch Import')
     return pages
   }, [role])
 
@@ -36,6 +35,117 @@ export default function SettingsPage({ username, role, userId, preferredPage }: 
   const [passwordSuccess, setPasswordSuccess] = useState('')
   const [passwordWarning, setPasswordWarning] = useState('')
   const [changingPassword, setChangingPassword] = useState(false)
+  const [flushSummary, setFlushSummary] = useState<Record<string, number> | null>(null)
+  const [flushPassword, setFlushPassword] = useState('')
+  const [flushConfirmation, setFlushConfirmation] = useState('')
+  const [flushError, setFlushError] = useState('')
+  const [flushResult, setFlushResult] = useState('')
+  const [loadingFlushPreview, setLoadingFlushPreview] = useState(false)
+  const [flushingDatabase, setFlushingDatabase] = useState(false)
+  const [verifyingFlushPassword, setVerifyingFlushPassword] = useState(false)
+  const [showFlushConfirm, setShowFlushConfirm] = useState(false)
+
+  useEffect(() => {
+    if (role !== 'administrator') return
+    let cancelled = false
+    async function loadFlushPreview() {
+      setLoadingFlushPreview(true)
+      const { data, error } = await supabase.functions.invoke('manage-db-flush', { body: { action: 'preview' } })
+      if (cancelled) return
+      if (error || !data?.success || !data?.counts) {
+        let message = data?.error || error?.message || t('Unable to load the database deletion summary.')
+        const context = error?.context
+        if (!data?.error && context && typeof context.clone === 'function') {
+          try {
+            const body = await context.clone().json()
+            message = body?.error || body?.message || message
+          } catch { /* Keep the original function error. */ }
+        }
+        setFlushError(message)
+      } else {
+        setFlushSummary(data.counts)
+      }
+      setLoadingFlushPreview(false)
+    }
+    void loadFlushPreview()
+    return () => { cancelled = true }
+  }, [role, t])
+
+  async function flushDatabase(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setFlushError('')
+    setFlushResult('')
+    if (flushConfirmation !== 'FLUSH DATABASE') {
+      setFlushError(t('Type FLUSH DATABASE exactly to confirm.'))
+      return
+    }
+    if (!flushPassword) {
+      setFlushError(t('Enter the dedicated flush password.'))
+      return
+    }
+    // Verify the dedicated password with the server before showing the final
+    // destructive-action modal. A wrong password must never open that modal.
+    setVerifyingFlushPassword(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('manage-db-flush', {
+        body: { action: 'verify_password', flushPassword },
+      })
+      if (error || data?.error || !data?.success) {
+        let message = data?.error || error?.message || t('Database flush password verification failed.')
+        const context = error?.context
+        if (!data?.error && context && typeof context.clone === 'function') {
+          try {
+            const body = await context.clone().json()
+            message = body?.error || body?.message || message
+          } catch { /* Keep the original function error. */ }
+        }
+        setFlushError(message)
+        setShowFlushConfirm(false)
+        return
+      }
+      setShowFlushConfirm(true)
+    } catch {
+      setFlushError(t('Database flush password verification failed.'))
+      setShowFlushConfirm(false)
+    } finally {
+      setVerifyingFlushPassword(false)
+    }
+  }
+
+  async function confirmFlushDatabase() {
+    if (flushingDatabase) return
+    setFlushError('')
+    setFlushingDatabase(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('manage-db-flush', {
+        body: { action: 'flush', flushPassword, confirmation: flushConfirmation },
+      })
+      if (error || data?.error || !data?.success) {
+        let message = data?.error || error?.message || t('Database flush failed.')
+        const context = error?.context
+        if (!data?.error && context && typeof context.clone === 'function') {
+          try {
+            const body = await context.clone().json()
+            message = body?.error || body?.message || message
+          } catch {
+            // Keep the original function error when the response is not JSON.
+          }
+        }
+        setFlushError(message)
+        setShowFlushConfirm(false)
+        return
+      }
+      setFlushPassword('')
+      setFlushConfirmation('')
+      setShowFlushConfirm(false)
+      setFlushResult(t('Database flush completed. Your administrator account remains active.'))
+    } catch {
+      setFlushError(t('Database flush failed. Check the connection and contact the system administrator.'))
+      setShowFlushConfirm(false)
+    } finally {
+      setFlushingDatabase(false)
+    }
+  }
 
 
   async function changeLanguage(nextLanguage: Language) {
@@ -224,11 +334,93 @@ export default function SettingsPage({ username, role, userId, preferredPage }: 
         </div>
       </section>
 
+      {role === 'administrator' && (
+        <details className="group overflow-hidden rounded-xl border border-red-200 bg-white shadow-sm">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-red-50 px-5 py-4 [&::-webkit-details-marker]:hidden">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="rounded-lg bg-red-100 p-2 text-red-700"><Database size={19} /></div>
+              <div>
+                <h2 className="font-semibold text-red-900">{t('Flush whole database')}</h2>
+                <p className="mt-1 text-sm text-red-800">{t('Danger zone · Administrator only')}</p>
+              </div>
+            </div>
+            <ChevronDown size={18} className="shrink-0 text-red-700 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="border-t border-red-200">
+            <p className="px-5 pt-4 text-sm text-red-800">{t('Permanently deletes all inventory, assignments, employees, locations, catalogue entries and audit history, and deletes every other user account. The administrator performing the flush is preserved.')}</p>
+          <form onSubmit={flushDatabase} className="space-y-4 p-5">
+            {flushSummary && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+              <p className="mb-2 font-semibold">{t('Deletion summary')}</p>
+              <ul className="grid gap-1 sm:grid-cols-2">
+                <li>{t('Inventory items')}: {flushSummary.inventory_items ?? 0}</li>
+                <li>{t('Assignments')}: {flushSummary.inventory_item_employees ?? 0}</li>
+                <li>{t('Employees')}: {flushSummary.employees ?? 0}</li>
+                <li>{t('Locations')}: {flushSummary.locations ?? 0}</li>
+                <li>{t('Item types')}: {flushSummary.item_types ?? 0}</li>
+                <li>{t('Brands')}: {flushSummary.brands ?? 0}</li>
+                <li>{t('Models')}: {flushSummary.models ?? 0}</li>
+                <li>{t('Audit events')}: {flushSummary.audit_events ?? 0}</li>
+                <li>{t('Other user accounts to delete')}: {Math.max(0, (flushSummary.profiles ?? 0) - 1)}</li>
+              </ul>
+              <p className="mt-2 text-xs">{t('The administrator performing this operation will remain active with the Administrator role.')}</p>
+            </div>}
+            <div>
+              <label htmlFor="db-flush-password" className="mb-1 block text-sm font-medium text-slate-700">{t('Dedicated database flush password')}</label>
+              <input id="db-flush-password" type="password" autoComplete="off" required value={flushPassword} onChange={(event) => setFlushPassword(event.target.value)} disabled={flushingDatabase} className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" />
+              <p className="mt-1 text-xs text-slate-500">{t('This password is verified by the server and is not stored in the application.')}</p>
+            </div>
+            <div>
+              <label htmlFor="flush-confirmation" className="mb-1 block text-sm font-medium text-slate-700">{t('Type FLUSH DATABASE to confirm')}</label>
+              <input id="flush-confirmation" required value={flushConfirmation} onChange={(event) => setFlushConfirmation(event.target.value)} disabled={flushingDatabase} placeholder="FLUSH DATABASE" className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" />
+            </div>
+            {flushError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{flushError}</p>}
+            {flushResult && <p role="status" className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">{flushResult}</p>}
+            <button type="submit" disabled={loadingFlushPreview || flushingDatabase || verifyingFlushPassword || !flushPassword || flushConfirmation !== 'FLUSH DATABASE'} className="rounded-lg bg-red-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50">{loadingFlushPreview ? t('Loading deletion summary…') : verifyingFlushPassword ? t('Verifying password…') : flushingDatabase ? t('Flushing database…') : t('Flush whole database')}</button>
+          </form>
+          </div>
+        </details>
+      )}
 
-      <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-        <Settings size={17} className="mt-0.5 shrink-0 text-slate-500" />
-        {t('Additional settings can be added here as the application develops.')}
-      </div>
+      {showFlushConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4" role="presentation">
+          <section
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="flush-confirm-title"
+            aria-describedby="flush-confirm-description"
+            className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/10"
+          >
+            <div className="flex items-start gap-3 border-b border-red-100 bg-red-50 px-6 py-5">
+              <div className="mt-0.5 rounded-full bg-red-100 p-2 text-red-700"><Database size={21} /></div>
+              <div className="min-w-0">
+                <h2 id="flush-confirm-title" className="text-lg font-semibold text-red-950">{t('Confirm database flush')}</h2>
+                <p className="mt-1 text-sm text-red-800">{t('Irreversible administrator action')}</p>
+              </div>
+            </div>
+            <div className="space-y-3 px-6 py-5">
+              <p id="flush-confirm-description" className="text-sm leading-6 text-slate-700">
+                {t('This will permanently delete all inventory, assignments, employees, locations, catalogue entries and audit history, and all other user accounts. The administrator performing this operation will be preserved. This action cannot be undone.')}
+              </p>
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                <p className="font-semibold">{t('Final deletion summary')}</p>
+                <p className="mt-1">{t('Inventory items')}: {flushSummary?.inventory_items ?? 0} · {t('Employees')}: {flushSummary?.employees ?? 0} · {t('Locations')}: {flushSummary?.locations ?? 0}</p>
+                <p>{t('Audit events')}: {flushSummary?.audit_events ?? 0} · {t('Other user accounts to delete')}: {Math.max(0, (flushSummary?.profiles ?? 0) - 1)}</p>
+              </div>
+              <p className="text-sm font-medium text-slate-900">{t('Are you absolutely sure you want to permanently flush the database?')}</p>
+              {flushingDatabase && <p role="status" className="text-sm text-red-700">{t('Flushing database…')}</p>}
+            </div>
+            <div className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4 sm:flex-row sm:justify-end">
+              <button type="button" disabled={flushingDatabase} onClick={() => setShowFlushConfirm(false)} className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50">
+                {t('Cancel')}
+              </button>
+              <button type="button" disabled={flushingDatabase} onClick={() => void confirmFlushDatabase()} className="inline-flex items-center justify-center gap-2 rounded-lg bg-red-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60">
+                <Database size={16} /> {flushingDatabase ? t('Flushing database…') : t('Yes, permanently flush database')}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
     </div>
   )
 }

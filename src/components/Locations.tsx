@@ -41,7 +41,7 @@ export default function Locations() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [isAdministrator, setIsAdministrator] = useState(false);
+  const [canManageLocations, setCanManageLocations] = useState(false);
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -144,7 +144,7 @@ export default function Locations() {
         .maybeSingle();
 
       if (!cancelled) {
-        setIsAdministrator(Boolean(profile?.is_active && profile.role === 'administrator'));
+        setCanManageLocations(Boolean(profile?.is_active && ['administrator', 'inventory_manager'].includes(profile.role)));
       }
     }
 
@@ -336,9 +336,9 @@ export default function Locations() {
         <p className="mt-1 text-sm text-gray-500">
           {t('Manage inventory locations and see their assigned equipment and employees.')}
         </p>
-        <p className="mt-1 text-xs text-gray-500">
-          {t('Only administrators can create or modify locations.')}
-        </p>
+        {!canManageLocations && <p className="mt-1 text-xs text-gray-500">
+          {t('You have read-only access to locations.')}
+        </p>}
       </div>
 
       {error && (
@@ -383,7 +383,7 @@ export default function Locations() {
           </div>
         </div>
 
-        {isAdministrator && <div className="flex flex-col gap-2 border-b border-gray-200 bg-gray-50 p-4">
+        {canManageLocations && <div className="flex flex-col gap-2 border-b border-gray-200 bg-gray-50 p-4">
           <input
             type="text"
             value={newName}
@@ -487,6 +487,9 @@ export default function Locations() {
                       <p className="text-sm font-medium text-gray-800">
                         {location.name}
                       </p>
+                      <p className="mt-1 text-xs text-gray-400">
+                        {t('Location ID: {id}', { id: location.id })}
+                      </p>
                       {location.notes && (
                         <p className="mt-2 whitespace-pre-wrap text-sm text-gray-500">
                           {location.notes}
@@ -539,7 +542,7 @@ export default function Locations() {
                         <span className={location.employee_count === 0 ? 'font-semibold text-red-700' : ''}>{location.employee_count}</span>
                       </div>
 
-                      {isAdministrator && <button
+                      {canManageLocations && <button
                         onClick={() => {
                           setEditingId(location.id);
                           setEditingName(location.name);
@@ -553,7 +556,7 @@ export default function Locations() {
                         <Pencil size={16} />
                       </button>}
 
-                      {isAdministrator && <button
+                      {canManageLocations && <button
                         onClick={() => {
                           setDeleteTarget(location);
                           clearMessages();

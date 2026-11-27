@@ -20,7 +20,7 @@ function rejectDisallowedOrigin(req: Request): Response | null {
 }
 
 type CatalogueType = 'item_type' | 'brand' | 'model'
-type UserRole = 'administrator' | 'inventory_manager'
+type UserRole = 'administrator' | 'inventory_manager' | 'viewer'
 
 type RequestBody = {
   action?: string
@@ -145,7 +145,7 @@ Deno.serve(async (req) => {
     actorError ||
     !actor ||
     !actor.is_active ||
-    !(['administrator', 'inventory_manager'] as UserRole[]).includes(actor.role)
+    !(['administrator', 'inventory_manager', 'viewer'] as UserRole[]).includes(actor.role)
   ) {
     return response({ error: 'Catalogue management access required.' }, 403)
   }

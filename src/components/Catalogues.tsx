@@ -41,7 +41,8 @@ type CatalogueType = 'item_type' | 'brand' | 'model';
 type CatalogueEntry = ItemType | Brand | Model;
 type ApiRow = Record<string, unknown>;
 
-export default function Catalogues() {
+export default function Catalogues({ role }: { role: string }) {
+  const canManage = role === 'administrator' || role === 'inventory_manager'
   const { t } = useLanguage()
   const [itemTypes, setItemTypes] = useState<ItemType[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
@@ -504,7 +505,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
           </button>
         </div>
 
-        <div className="flex flex-col gap-2 border-b border-gray-200 bg-gray-50 p-4 sm:flex-row">
+        {canManage && <div className="flex flex-col gap-2 border-b border-gray-200 bg-gray-50 p-4 sm:flex-row">
           <input
             type="text"
             value={newName}
@@ -535,7 +536,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
             <Plus size={16} />
             {t('Add')}
           </button>
-        </div>
+        </div>}
 
         {loading ? (
           <div className="p-10 text-center text-sm text-gray-500">
@@ -553,7 +554,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
                 className="flex flex-wrap items-center justify-between gap-3 px-5 py-3"
               >
                 <div className="min-w-0 flex-1">
-                  {editingId === entry.id ? (
+                  {canManage && editingId === entry.id ? (
                     <input
                       type="text"
                       value={editingName}
@@ -581,7 +582,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {editingId !== entry.id && (
+                  {(!canManage || editingId !== entry.id) && (
                     <div
                       className={`flex items-center gap-1 rounded-lg px-3 py-2 text-xs ${entry.inventory_count === 0 ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}
                       title={t("Assigned inventory items")}
@@ -590,7 +591,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
                       <span className={entry.inventory_count === 0 ? 'font-semibold text-red-700' : ''}>{entry.inventory_count}</span>
                     </div>
                   )}
-                  {editingId === entry.id ? (
+                  {canManage && editingId === entry.id ? (
                     <>
                       <button
                         onClick={() => void renameEntry(entry.id)}
@@ -615,6 +616,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
                     </>
                   ) : (
                     <>
+                      {canManage && <>
                       <button
                         onClick={() => {
                           setEditingId(entry.id);
@@ -643,6 +645,7 @@ const nextModels: Model[] = (data.models ?? []).map((model: ApiRow) => ({
                       >
                         <Trash2 size={16} />
                       </button>
+                      </>}
                     </>
                   )}
                 </div>

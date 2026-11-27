@@ -76,10 +76,11 @@ function Dashboard({
   const pageStorageKey = `it-inventory-active-page:${userId}`
   const allowedPages = navigation
     .filter((item) => {
-      if (item.name === 'Accounts' || item.name === 'Batch Import') return role === 'administrator'
-      if (item.name === 'Audit Logs') return role === 'administrator' || role === 'inventory_manager'
+      if (item.name === 'Accounts') return role === 'administrator'
+      if (item.name === 'Batch Import') return ['administrator', 'inventory_manager'].includes(role)
+      if (item.name === 'Audit Logs') return ['administrator', 'inventory_manager', 'viewer'].includes(role)
       if (['Catalogues', 'Employees', 'Locations'].includes(item.name)) {
-        return role === 'administrator' || role === 'inventory_manager'
+        return ['administrator', 'inventory_manager', 'viewer'].includes(role)
       }
       return true
     })
@@ -229,14 +230,15 @@ function Dashboard({
           <nav className="space-y-1">
 {navigation
   .filter((item) => {
-    if (item.name === 'Accounts' || item.name === 'Batch Import') return role === 'administrator'
-    if (item.name === 'Audit Logs') return role === 'administrator' || role === 'inventory_manager'
+    if (item.name === 'Accounts') return role === 'administrator'
+      if (item.name === 'Batch Import') return ['administrator', 'inventory_manager'].includes(role)
+    if (item.name === 'Audit Logs') return ['administrator', 'inventory_manager', 'viewer'].includes(role)
     if (
       item.name === 'Catalogues' ||
       item.name === 'Employees' ||
       item.name === 'Locations'
     ) {
-      return role === 'administrator' || role === 'inventory_manager'
+      return ['administrator', 'inventory_manager', 'viewer'].includes(role)
     }
     return true
   })
@@ -436,7 +438,7 @@ function Dashboard({
     </div>
   )
 ) : activePage === 'Batch Import' ? (
-  role === 'administrator' ? (
+  ['administrator', 'inventory_manager'].includes(role) ? (
     <BatchImportPage />
   ) : (
     <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
@@ -445,8 +447,8 @@ function Dashboard({
     </div>
   )
 ) : activePage === 'Catalogues' ? (
-  role === 'administrator' || role === 'inventory_manager' ? (
-    <Catalogues />
+  ['administrator', 'inventory_manager', 'viewer'].includes(role) ? (
+    <Catalogues role={role} />
   ) : (
     <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
       <h3 className="font-semibold text-red-700">{t("Access denied")}</h3>
@@ -454,8 +456,8 @@ function Dashboard({
     </div>
   )
 ) : activePage === 'Employees' ? (
-  role === 'administrator' || role === 'inventory_manager' ? (
-    <Employees />
+  ['administrator', 'inventory_manager', 'viewer'].includes(role) ? (
+    <Employees role={role} />
   ) : (
     <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
       <h3 className="font-semibold text-red-700">{t("Access denied")}</h3>
@@ -463,7 +465,7 @@ function Dashboard({
     </div>
   )
 ) : activePage === 'Locations' ? (
-  role === 'administrator' || role === 'inventory_manager' ? (
+  ['administrator', 'inventory_manager', 'viewer'].includes(role) ? (
     <Locations />
   ) : (
     <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
@@ -472,7 +474,7 @@ function Dashboard({
     </div>
   )
 ) : activePage === 'Audit Logs' ? (
-  role === 'administrator' || role === 'inventory_manager' ? (
+  ['administrator', 'inventory_manager', 'viewer'].includes(role) ? (
     <AuditLogs role={role} />
   ) : (
     <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
@@ -603,8 +605,9 @@ function Dashboard({
         <GlobalSearch
           onClose={() => setGlobalSearchOpen(false)}
           onNavigate={(page) => {
-            if ((page === 'Accounts' || page === 'Batch Import') && role !== 'administrator') return
-            if (['Catalogues', 'Employees', 'Locations'].includes(page) && !['administrator', 'inventory_manager'].includes(role)) return
+            if (page === 'Accounts' && role !== 'administrator') return
+            if (page === 'Batch Import' && !['administrator', 'inventory_manager'].includes(role)) return
+            if (['Catalogues', 'Employees', 'Locations', 'Audit Logs'].includes(page) && !['administrator', 'inventory_manager', 'viewer'].includes(role)) return
             if (page === 'Inventory') navigateInventory('active')
             else setActivePage(page)
           }}
